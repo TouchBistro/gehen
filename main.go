@@ -152,6 +152,7 @@ func main() {
 	serviceUpdateInput := &ecs.UpdateServiceInput{
 		Service:        service,
 		TaskDefinition: newTaskArn,
+		Cluster:        cluster,
 	}
 	_, err = svc.UpdateService(serviceUpdateInput)
 	handleAwsErr(err)
