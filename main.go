@@ -14,7 +14,7 @@ import (
 	"time"
 )
 
-const timeout = 1   //deployment check timeout in minutes
+const timeout = 10  //deployment check timeout in minutes
 const interval = 15 //check interval in seconds
 
 func handleAwsErr(err error) {
@@ -148,7 +148,7 @@ func main() {
 
 	log.Print("Updating service to new task def ")
 	newTaskArn := taskDefReg.TaskDefinition.TaskDefinitionArn
-	log.Println(newTaskArn)
+	log.Println(newTaskArn) //Pick something to actually print
 	serviceUpdateInput := &ecs.UpdateServiceInput{
 		Service:        service,
 		TaskDefinition: newTaskArn,
