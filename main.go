@@ -22,32 +22,32 @@ func handleAwsErr(err error) {
 		if aerr, ok := err.(awserr.Error); ok {
 			switch aerr.Code() {
 			case ecs.ErrCodeServerException:
-				log.Println(ecs.ErrCodeServerException, aerr.Error())
+				log.Panic(ecs.ErrCodeServerException, aerr.Error())
 			case ecs.ErrCodeClientException:
-				log.Println(ecs.ErrCodeClientException, aerr.Error())
+				log.Panic(ecs.ErrCodeClientException, aerr.Error())
 			case ecs.ErrCodeInvalidParameterException:
-				log.Println(ecs.ErrCodeInvalidParameterException, aerr.Error())
+				log.Panic(ecs.ErrCodeInvalidParameterException, aerr.Error())
 			case ecs.ErrCodeClusterNotFoundException:
-				log.Println(ecs.ErrCodeClusterNotFoundException, aerr.Error())
+				log.Panic(ecs.ErrCodeClusterNotFoundException, aerr.Error())
 			case ecs.ErrCodeServiceNotFoundException:
-				log.Println(ecs.ErrCodeServiceNotFoundException, aerr.Error())
+				log.Panic(ecs.ErrCodeServiceNotFoundException, aerr.Error())
 			case ecs.ErrCodeServiceNotActiveException:
-				log.Println(ecs.ErrCodeServiceNotActiveException, aerr.Error())
+				log.Panic(ecs.ErrCodeServiceNotActiveException, aerr.Error())
 			case ecs.ErrCodePlatformUnknownException:
-				log.Println(ecs.ErrCodePlatformUnknownException, aerr.Error())
+				log.Panic(ecs.ErrCodePlatformUnknownException, aerr.Error())
 			case ecs.ErrCodePlatformTaskDefinitionIncompatibilityException:
-				log.Println(ecs.ErrCodePlatformTaskDefinitionIncompatibilityException, aerr.Error())
+				log.Panic(ecs.ErrCodePlatformTaskDefinitionIncompatibilityException, aerr.Error())
 			case ecs.ErrCodeAccessDeniedException:
-				log.Println(ecs.ErrCodeAccessDeniedException, aerr.Error())
+				log.Panic(ecs.ErrCodeAccessDeniedException, aerr.Error())
 			default:
-				log.Println(aerr.Error())
+				log.Panic(aerr.Error())
 			}
 		} else {
 			// Print the error, cast err to awserr.Error to get the Code and
 			// Message from an error.
-			log.Println(err.Error())
+			log.Panic(err.Error())
 		}
-		return
+		os.Exit(1)
 	}
 }
 
