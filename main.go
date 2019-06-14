@@ -76,7 +76,7 @@ func checkDeployment(url string, gitsha string, check chan bool) bool {
 		if err != nil {
 			log.Fatal(err)
 		}
-		log.Println("Got " + resp.Header.Get("Server"))
+		log.Println("Got " + resp.Header.Get("Server") + " from " + url)
 		t := strings.Split(resp.Header.Get("Server"), "-")
 		if t[len(t)-1] == gitsha {
 			check <- true
@@ -162,10 +162,10 @@ func main() {
 	go checkDeployment(*versionUrl, *gitsha, check)
 	select {
 	case _ = <-check:
-		log.Println("Version successfully deployed.")
+		log.Println("Version " + *gitsha + " successfully deployed to " + *service)
 		return
 	case <-time.After(timeout * time.Minute):
-		log.Println("Timed out while checking for deployed version.")
+		log.Println("Timed out while checking for deployed version on " + *service)
 		os.Exit(1)
 	}
 }
