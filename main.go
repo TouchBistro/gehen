@@ -76,6 +76,15 @@ func checkDeployment(url string, gitsha string, check chan bool) bool {
 		if err != nil {
 			log.Fatal(err)
 		}
+		//hacky way to check raw endpoint for sha if not a TB service
+		b := make([]byte, 40)
+		_, err = resp.Body.Read(b)
+		if err != nil {
+			log.Panic(err)
+		}
+		if string(b) == gitsha {
+			check <- true
+		}
 		log.Println("Got " + resp.Header.Get("Server") + " from " + url)
 		t := strings.Split(resp.Header.Get("Server"), "-")
 		if t[len(t)-1] == gitsha {
