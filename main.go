@@ -7,6 +7,7 @@ import (
 	"github.com/aws/aws-sdk-go/aws/awserr"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/ecs"
+	"github.com/getsentry/raven-go"
 	"log"
 	"net/http"
 	"os"
@@ -19,6 +20,7 @@ const interval = 15 //check interval in seconds
 
 func handleAwsErr(err error) {
 	if err != nil {
+		raven.CaptureErrorAndWait(err, nil)
 		if aerr, ok := err.(awserr.Error); ok {
 			switch aerr.Code() {
 			case ecs.ErrCodeServerException:
@@ -74,12 +76,14 @@ func checkDeployment(url string, gitsha string, check chan bool) bool {
 	for {
 		resp, err := http.Get(url)
 		if err != nil {
+			raven.CaptureErrorAndWait(err, nil)
 			log.Fatal(err)
 		}
 		//hacky way to check raw endpoint for sha if not a TB service
 		b := make([]byte, 40)
 		_, err = resp.Body.Read(b)
 		if err != nil {
+			raven.CaptureErrorAndWait(err, nil)
 			log.Panic(err)
 		}
 		if string(b) == gitsha {
@@ -93,6 +97,10 @@ func checkDeployment(url string, gitsha string, check chan bool) bool {
 			time.Sleep(time.Second * interval)
 		}
 	}
+}
+
+func init() {
+	raven.SetDSN(os.Getenv("SENTRY_DSN"))
 }
 
 func main() {
@@ -109,6 +117,7 @@ func main() {
 	//Ensure we've been passed a valid cluster ARN and panic if not
 	var clusterArn, err = arn.Parse(*cluster)
 	if err != nil {
+		raven.CaptureErrorAndWait(err, nil)
 		log.Fatal(err)
 	}
 	log.Print("Using cluster: ")
