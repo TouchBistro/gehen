@@ -75,19 +75,20 @@ func taskOutToIn(input ecs.DescribeTaskDefinitionOutput) ecs.RegisterTaskDefinit
 func checkDeployment(url string, gitsha string, check chan bool) bool {
 	for {
 		resp, err := http.Get(url)
+		if resp != nil {
+			defer resp.Body.Close()
+		}
 		b := make([]byte, 40)
 		if err != nil {
 			raven.CaptureErrorAndWait(err, nil)
 			log.Fatal(err)
 		}
 		_, err = resp.Body.Read(b)
-
-		defer resp.Body.Close()
-
 		if err != nil {
 			raven.CaptureErrorAndWait(err, nil)
 			log.Panic(err)
 		}
+
 		deployed := false
 		respHeader := resp.Header.Get("Server")
 
