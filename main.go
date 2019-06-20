@@ -160,10 +160,9 @@ func main() {
 
 	//Update each container in task def to use same repo with new tag/sha
 	for i, container := range newTask.ContainerDefinitions {
-		log.Print("Changing container image " + *container.Image + " to ")
 		t := strings.Split(*container.Image, ":")
 		newimg := (strings.Join(t[:len(t)-1], "") + ":" + *gitsha)
-		log.Println(newimg)
+		log.Print("Changing container image " + *container.Image + " to " + newimg)
 		*newTask.ContainerDefinitions[i].Image = newimg
 	}
 
