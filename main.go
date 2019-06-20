@@ -75,11 +75,11 @@ func taskOutToIn(input ecs.DescribeTaskDefinitionOutput) ecs.RegisterTaskDefinit
 func checkDeployment(url string, gitsha string, check chan bool) bool {
 	for {
 		resp, err := http.Get(url)
+		b := make([]byte, 40)
 		if err != nil {
 			raven.CaptureErrorAndWait(err, nil)
 			log.Fatal(err)
 		}
-		b := make([]byte, 40)
 		_, err = resp.Body.Read(b)
 		if err != nil {
 			raven.CaptureErrorAndWait(err, nil)
@@ -167,12 +167,11 @@ func main() {
 		*newTask.ContainerDefinitions[i].Image = newimg
 	}
 
-	log.Println("Registering new task definition")
 	taskDefReg, err := svc.RegisterTaskDefinition(&newTask)
 	handleAwsErr(err)
 
 	newTaskArn := taskDefReg.TaskDefinition.TaskDefinitionArn
-	log.Println("Updating service to new task def " + *newTaskArn) //Pick something to actually print
+	log.Println("Registered new task definition" + *newTaskArn + ", updating service " + *service)
 	serviceUpdateInput := &ecs.UpdateServiceInput{
 		Service:        service,
 		TaskDefinition: newTaskArn,
