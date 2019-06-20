@@ -79,19 +79,27 @@ func checkDeployment(url string, gitsha string, check chan bool) bool {
 			raven.CaptureErrorAndWait(err, nil)
 			log.Fatal(err)
 		}
-		//hacky way to check raw endpoint for sha if not a TB service
 		b := make([]byte, 40)
 		_, err = resp.Body.Read(b)
 		if err != nil {
 			raven.CaptureErrorAndWait(err, nil)
 			log.Panic(err)
 		}
-		if string(b) == gitsha {
-			check <- true
+		deployed := false
+		respHeader := resp.Header.Get("Server")
+
+		t := strings.Split(respHeader, "-")
+		if len(t[len(t)-1]) == 40 {
+			respHeader = t[len(t)-1]
+		} else {
+			respHeader = string(b)
 		}
-		log.Println("Got " + resp.Header.Get("Server") + " from " + url)
-		t := strings.Split(resp.Header.Get("Server"), "-")
-		if t[len(t)-1] == gitsha {
+
+		if respHeader == gitsha {
+			deployed = true
+		}
+		log.Println("Got " + respHeader + " from " + url)
+		if deployed {
 			check <- true
 		} else {
 			time.Sleep(time.Second * interval)
@@ -120,8 +128,7 @@ func main() {
 		raven.CaptureErrorAndWait(err, nil)
 		log.Fatal(err)
 	}
-	log.Print("Using cluster: ")
-	log.Println(clusterArn)
+	log.Println("Using cluster: " + clusterArn.String())
 
 	//Connect to ECS API
 	sess := session.Must(session.NewSession(&aws.Config{
@@ -164,9 +171,8 @@ func main() {
 	taskDefReg, err := svc.RegisterTaskDefinition(&newTask)
 	handleAwsErr(err)
 
-	log.Print("Updating service to new task def ")
 	newTaskArn := taskDefReg.TaskDefinition.TaskDefinitionArn
-	log.Println(newTaskArn) //Pick something to actually print
+	log.Println("Updating service to new task def " + *newTaskArn) //Pick something to actually print
 	serviceUpdateInput := &ecs.UpdateServiceInput{
 		Service:        service,
 		TaskDefinition: newTaskArn,
