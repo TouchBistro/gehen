@@ -86,7 +86,7 @@ func checkDeployment(url string, gitsha string, check chan bool) bool {
 		_, err = resp.Body.Read(b)
 		if err != nil {
 			raven.CaptureErrorAndWait(err, nil)
-			log.Panic(err)
+			log.Fatal(err)
 		}
 
 		deployed := false
