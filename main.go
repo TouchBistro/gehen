@@ -83,14 +83,12 @@ func checkDeployment(url string, gitsha string, check chan bool) {
 			raven.CaptureErrorAndWait(err, nil)
 			log.Println("Failed to get " + url)
 			log.Println(err)
-			time.Sleep(time.Second * interval)
 		}
 		_, err = resp.Body.Read(b)
 		if err != nil {
 			raven.CaptureErrorAndWait(err, nil)
 			log.Println("Failed to parse body from " + url)
 			log.Println(err)
-			time.Sleep(time.Second * interval)
 		}
 
 		deployed := false
