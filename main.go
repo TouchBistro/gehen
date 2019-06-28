@@ -72,7 +72,7 @@ func taskOutToIn(input ecs.DescribeTaskDefinitionOutput) ecs.RegisterTaskDefinit
 	return output
 }
 
-func checkDeployment(url string, gitsha string, check chan bool) bool {
+func checkDeployment(url string, gitsha string, check chan bool) {
 	for {
 		resp, err := http.Get(url)
 		if resp != nil {
@@ -81,12 +81,16 @@ func checkDeployment(url string, gitsha string, check chan bool) bool {
 		b := make([]byte, 40)
 		if err != nil {
 			raven.CaptureErrorAndWait(err, nil)
-			log.Fatal(err)
+			log.Println("Failed to get " + url)
+			log.Println(err)
+			time.Sleep(time.Second * interval)
 		}
 		_, err = resp.Body.Read(b)
 		if err != nil {
 			raven.CaptureErrorAndWait(err, nil)
-			log.Fatal(err)
+			log.Println("Failed to parse body from " + url)
+			log.Println(err)
+			time.Sleep(time.Second * interval)
 		}
 
 		deployed := false
