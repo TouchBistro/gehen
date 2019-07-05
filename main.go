@@ -95,7 +95,7 @@ func checkDeployment(url string, gitsha string, check chan bool) {
 		respHeader := resp.Header.Get("Server")
 
 		t := strings.Split(respHeader, "-")
-		if len(t[len(t)-1]) == 40 {
+		if (len(t[len(t)-1]) == 40) || (len(t[len(t)-1]) == 7) {
 			respHeader = t[len(t)-1]
 		} else {
 			respHeader = string(b)
