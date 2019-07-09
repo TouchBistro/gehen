@@ -8,6 +8,7 @@ import (
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/ecs"
 	"github.com/getsentry/raven-go"
+	"io/ioutil"
 	"log"
 	"net/http"
 	"os"
@@ -78,13 +79,13 @@ func checkDeployment(url string, gitsha string, check chan bool) {
 		if resp != nil {
 			defer resp.Body.Close()
 		}
-		b := make([]byte, 40)
+
 		if err != nil {
 			raven.CaptureErrorAndWait(err, nil)
 			log.Println("Failed to get " + url)
 			log.Println(err)
 		}
-		_, err = resp.Body.Read(b)
+		header, err := ioutil.ReadAll(resp.Body)
 		if err != nil {
 			raven.CaptureErrorAndWait(err, nil)
 			log.Println("Failed to parse body from " + url)
@@ -98,10 +99,10 @@ func checkDeployment(url string, gitsha string, check chan bool) {
 		if (len(t[len(t)-1]) == 40) || (len(t[len(t)-1]) == 7) {
 			respHeader = t[len(t)-1]
 		} else {
-			respHeader = string(b)
+			respHeader = string(header)
 		}
 
-		if respHeader == gitsha {
+		if strings.HasSuffix(respHeader, gitsha) {
 			deployed = true
 		}
 		log.Println("Got " + respHeader + " from " + url)
