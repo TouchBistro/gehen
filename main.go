@@ -85,7 +85,7 @@ func checkDeployment(url string, gitsha string, check chan bool) {
 			log.Println("Failed to get " + url)
 			log.Println(err)
 		}
-		header, err := ioutil.ReadAll(resp.Body)
+
 		if err != nil {
 			raven.CaptureErrorAndWait(err, nil)
 			log.Println("Failed to parse body from " + url)
@@ -95,17 +95,29 @@ func checkDeployment(url string, gitsha string, check chan bool) {
 		deployed := false
 		respHeader := resp.Header.Get("Server")
 
-		t := strings.Split(respHeader, "-")
-		if (len(t[len(t)-1]) == 40) || (len(t[len(t)-1]) == 7) {
-			respHeader = t[len(t)-1]
+		if respHeader != "" {
+			t := strings.Split(respHeader, "-")
+			if len(t) > 1 {
+				respHeader = t[len(t)-1]
+			}
 		} else {
-			respHeader = string(header)
+			bodySha, err := ioutil.ReadAll(resp.Body)
+			if err != nil {
+				log.Println("Failed to read response body: ")
+				log.Println(err)
+			}
+			respHeader = string(bodySha)
 		}
 
-		if strings.HasSuffix(respHeader, gitsha) {
+		if respHeader == "" {
+			log.Println("Could not parse a gitsha version from header or body at " + url)
+		} else {
+			log.Println("Got " + respHeader + " from " + url)
+		}
+
+		if len(respHeader) > 2 && strings.HasSuffix(respHeader, gitsha) {
 			deployed = true
 		}
-		log.Println("Got " + respHeader + " from " + url)
 		if deployed {
 			check <- true
 		} else {
