@@ -3,12 +3,13 @@ Gehen is a mininal version update aid for ECS services. It assumes the service i
 
 
 ```
-./gehen --help
 Usage of ./gehen:
   -cluster string
     	The full cluster ARN to deploy this service to
   -gitsha string
     	The gitsha of the version to be deployed
+  -migrate string
+    	Launch a one-off migration task along with the service update
   -service string
     	The service name running this service on ECS
   -url string
