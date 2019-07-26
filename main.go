@@ -8,6 +8,7 @@ import (
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/ecs"
 	"github.com/getsentry/raven-go"
+	"io/ioutil"
 	"log"
 	"net/http"
 	"os"
@@ -78,13 +79,13 @@ func checkDeployment(url string, gitsha string, check chan bool) {
 		if resp != nil {
 			defer resp.Body.Close()
 		}
-		b := make([]byte, 40)
+
 		if err != nil {
 			raven.CaptureErrorAndWait(err, nil)
 			log.Println("Failed to get " + url)
 			log.Println(err)
 		}
-		_, err = resp.Body.Read(b)
+
 		if err != nil {
 			raven.CaptureErrorAndWait(err, nil)
 			log.Println("Failed to parse body from " + url)
@@ -94,17 +95,29 @@ func checkDeployment(url string, gitsha string, check chan bool) {
 		deployed := false
 		respHeader := resp.Header.Get("Server")
 
-		t := strings.Split(respHeader, "-")
-		if (len(t[len(t)-1]) == 40) || (len(t[len(t)-1]) == 7) {
-			respHeader = t[len(t)-1]
+		if respHeader != "" {
+			t := strings.Split(respHeader, "-")
+			if len(t) > 1 {
+				respHeader = t[len(t)-1]
+			}
 		} else {
-			respHeader = string(b)
+			bodySha, err := ioutil.ReadAll(resp.Body)
+			if err != nil {
+				log.Println("Failed to read response body: ")
+				log.Println(err)
+			}
+			respHeader = string(bodySha)
 		}
 
-		if respHeader == gitsha {
+		if respHeader == "" {
+			log.Println("Could not parse a gitsha version from header or body at " + url)
+		} else {
+			log.Println("Got " + respHeader + " from " + url)
+		}
+
+		if len(respHeader) > 2 && strings.HasSuffix(respHeader, gitsha) {
 			deployed = true
 		}
-		log.Println("Got " + respHeader + " from " + url)
 		if deployed {
 			check <- true
 		} else {
@@ -121,6 +134,7 @@ func main() {
 	cluster := flag.String("cluster", "", "The full cluster ARN to deploy this service to")
 	service := flag.String("service", "", "The service name running this service on ECS")
 	gitsha := flag.String("gitsha", "", "The gitsha of the version to be deployed")
+	migrate := flag.String("migrate", "", "Launch a one-off migration task along with the service update")
 	versionUrl := flag.String("url", "", "The URL to check for the deployed version")
 	flag.Parse()
 
@@ -178,12 +192,37 @@ func main() {
 	newTaskArn := taskDefReg.TaskDefinition.TaskDefinitionArn
 	log.Println("Registered new task definition" + *newTaskArn + ", updating service " + *service)
 	serviceUpdateInput := &ecs.UpdateServiceInput{
-		Service:        service,
 		TaskDefinition: newTaskArn,
+		Service:        service,
 		Cluster:        cluster,
 	}
 	_, err = svc.UpdateService(serviceUpdateInput)
 	handleAwsErr(err)
+
+	if *migrate != "" {
+		var containerOverrides []*ecs.ContainerOverride
+		var commandString []*string
+		commands := strings.Split(*migrate, " ")
+		for i := range commands {
+			commandString = append(commandString, &commands[i])
+		}
+		containerOverrides = append(containerOverrides, &ecs.ContainerOverride{
+			Name:    taskDefReg.TaskDefinition.ContainerDefinitions[0].Name,
+			Command: commandString,
+		})
+		runTaskOverride := &ecs.TaskOverride{
+			ContainerOverrides: containerOverrides,
+		}
+		runTaskInput := &ecs.RunTaskInput{
+			TaskDefinition: newTaskArn,
+			Overrides:      runTaskOverride,
+			Cluster:        cluster,
+		}
+		log.Println("Launching migration for " + *service + " service with command " + *migrate)
+		taskRun, err := svc.RunTask(runTaskInput)
+		handleAwsErr(err)
+		log.Println("Check for migration logs for " + *service + " at https://app.datadoghq.com/logs?query=task_arn%3A\"" + *taskRun.Tasks[0].TaskArn + "\"")
+	}
 
 	log.Println("Checking " + *versionUrl + " for newly deployed version")
 	check := make(chan bool)
