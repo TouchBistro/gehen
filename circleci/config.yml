@@ -1,0 +1,33 @@
+version: 2
+
+jobs:
+  lint-build:
+    docker:
+      - image: circleci/golang:1.12
+    working_directory: ~/gehen
+    steps:
+      - checkout
+      - restore_cache:
+          name: Restore dependency cache
+          keys:
+            - gehen-deps-{{ checksum "go.sum" }}
+      - run:
+          name: Install dependencies
+          command: make setup
+      - save_cache:
+          name: Cache dependencies
+          key: gehen-deps-{{ checksum "go.sum" }}
+          paths:
+            - /go/pkg
+      - run:
+          name: Run linter
+          command: make lint
+      - run:
+          name: Build gehen
+          command: make build
+
+workflows:
+  version: 2
+  lint-build:
+    jobs:
+      - lint-build
