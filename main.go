@@ -1,7 +1,6 @@
 package main
 
 import (
-	"errors"
 	"flag"
 	"fmt"
 	"io/ioutil"
@@ -13,6 +12,7 @@ import (
 
 	"github.com/TouchBistro/gehen/awsecs"
 	"github.com/getsentry/raven-go"
+	"github.com/pkg/errors"
 )
 
 const (
@@ -35,7 +35,7 @@ func fetchRevisionSha(url string) (string, error) {
 	}
 
 	if err != nil {
-		return "", fmt.Errorf("Failed to HTTP GET %s", url)
+		return "", errors.New(fmt.Sprintf("Failed to HTTP GET %s", url))
 	}
 
 	// Check if revision sha is in the http Server header.
@@ -50,7 +50,7 @@ func fetchRevisionSha(url string) (string, error) {
 	// Check if revision sha is in the body
 	bodySha, err := ioutil.ReadAll(resp.Body)
 	if err != nil {
-		return "", errors.New("Failed to parse body from " + url)
+		return "", errors.New(fmt.Sprintf("Failed to parse body from %s", url))
 	}
 
 	return string(bodySha), nil
@@ -65,6 +65,7 @@ func checkDeployment(url string, deployedSha string, check chan bool) {
 		fetchedSha, err := fetchRevisionSha(url)
 		if err != nil {
 			log.Printf("Could not parse a gitsha version from header or body at %s\n", url)
+			log.Printf("Error: %+v", err) // TODO: Remove if this is too noisy
 			continue
 		}
 
