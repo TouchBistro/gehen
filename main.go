@@ -92,10 +92,13 @@ func parseFlags() {
 }
 
 func main() {
-	raven.SetDSN(os.Getenv("SENTRY_DSN"))
+	err := raven.SetDSN(os.Getenv("SENTRY_DSN"))
+	if err != nil {
+		log.Fatal("SENTRY_DSN is not set")
+	}
 	parseFlags()
 
-	err := awsecs.Deploy(migrationCmd, service, cluster, gitsha)
+	err = awsecs.Deploy(migrationCmd, service, cluster, gitsha)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Failed deploying to aws. Error: %+v\n", err)
 		raven.CaptureErrorAndWait(err, nil)

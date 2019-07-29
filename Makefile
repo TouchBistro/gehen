@@ -2,6 +2,7 @@
 
 # Get all dependencies
 setup:
+	curl -sfL https://install.goreleaser.com/github.com/golangci/golangci-lint.sh | sh
 	go mod download
 .PHONY: setup
 

@@ -23,7 +23,7 @@ jobs:
           name: Run linter
           command: make lint
       - run:
-          name: Build tb
+          name: Build gehen
           command: make build
       - run:
           name: Verify tb runs
