@@ -25,9 +25,6 @@ jobs:
       - run:
           name: Build gehen
           command: make build
-      - run:
-          name: Verify tb runs
-          command: ./gehen
 
 workflows:
   version: 2
