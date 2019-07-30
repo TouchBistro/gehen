@@ -58,7 +58,7 @@ func fetchRevisionSha(url string) (string, error) {
 	return string(bodySha), nil
 }
 
-func checkDeployment(url, deployedSha string, check chan bool) {
+func checkDeployment(name, url, deployedSha string, check chan string) {
 	log.Printf("Checking %s for newly deployed version\n", versionURL)
 
 	for {
@@ -73,7 +73,7 @@ func checkDeployment(url, deployedSha string, check chan bool) {
 
 		log.Printf("Got %s from %s\n", fetchedSha, url)
 		if len(fetchedSha) > 7 && strings.HasPrefix(deployedSha, fetchedSha) {
-			check <- true
+			check <- name
 			return
 		}
 	}
@@ -120,7 +120,7 @@ func main() {
 			os.Exit(1)
 		}
 	} else {
-		services = map[string]config.Service{
+		services = config.ServiceMap{
 			service: {
 				Cluster: cluster,
 				URL:     versionURL,
@@ -143,18 +143,17 @@ func main() {
 		}
 	}
 
-	check := make(chan bool)
-	for _, s := range services {
-		go checkDeployment(s.URL, gitsha, check)
+	check := make(chan string)
+	for name, s := range services {
+		go checkDeployment(name, s.URL, gitsha, check)
 	}
 
-	// TODO figure out how to get the service name
 	for finished := 0; finished < len(services); finished++ {
 		select {
-		case <-check:
-			log.Printf("Version %s successfully deployed to %s\n", gitsha, service)
+		case name := <-check:
+			log.Printf("Version %s successfully deployed to %s\n", gitsha, name)
 		case <-time.After(timeoutMins * time.Minute):
-			log.Printf("Timed out while checking for deployed version on %s\n", service)
+			log.Println("Timed out while checking for deployed version of services")
 			os.Exit(1)
 		}
 	}
