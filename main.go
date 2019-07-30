@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/TouchBistro/gehen/awsecs"
+	"github.com/TouchBistro/gehen/config"
 	"github.com/getsentry/raven-go"
 	"github.com/pkg/errors"
 )
@@ -26,6 +27,7 @@ var (
 	gitsha       string
 	migrationCmd string
 	versionURL   string
+	configPath   string
 )
 
 func fetchRevisionSha(url string) (string, error) {
@@ -56,7 +58,7 @@ func fetchRevisionSha(url string) (string, error) {
 	return string(bodySha), nil
 }
 
-func checkDeployment(url string, deployedSha string, check chan bool) {
+func checkDeployment(url, deployedSha string, check chan bool) {
 	log.Printf("Checking %s for newly deployed version\n", versionURL)
 
 	for {
@@ -83,11 +85,17 @@ func parseFlags() {
 	flag.StringVar(&gitsha, "gitsha", "", "The gitsha of the version to be deployed")
 	flag.StringVar(&migrationCmd, "migrate", "", "Launch a one-off migration task along with the service update")
 	flag.StringVar(&versionURL, "url", "", "The URL to check for the deployed version")
+	flag.StringVar(&configPath, "path", "", "The path to a gehen.yml config file")
 
 	flag.Parse()
 
-	if cluster == "" || service == "" || gitsha == "" || versionURL == "" {
-		log.Fatalln("Unset flags, need cluster, service, versionURL and gitsha")
+	// gitsha is always required, then require either path or cluster and service and versionURL
+	if gitsha == "" {
+		log.Fatalln("Must provide gitsha")
+	} else if configPath == "" && (cluster == "" || service == "" || versionURL == "") {
+		log.Fatalln("Must provide cluster, service, and versionURL")
+	} else if configPath != "" && (cluster != "" || service != "" || versionURL != "") {
+		log.Fatalln("Must specify either configPath or all of cluster, service, and versionURL")
 	}
 }
 
@@ -98,22 +106,56 @@ func main() {
 	}
 	parseFlags()
 
-	err = awsecs.Deploy(migrationCmd, service, cluster, gitsha)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Failed deploying to aws. Error: %+v\n", err)
-		raven.CaptureErrorAndWait(err, nil)
-		os.Exit(1)
+	var services config.ServiceMap
+	if configPath != "" {
+		err = config.Init(configPath)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Failed reading config file. Error: %+v\n", err)
+			os.Exit(1)
+		}
+
+		services = config.Config().Services
+		if len(services) == 0 {
+			fmt.Fprintln(os.Stderr, "gehen.yml must contain at least one service")
+			os.Exit(1)
+		}
+	} else {
+		services = map[string]config.Service{
+			service: {
+				Cluster: cluster,
+				URL:     versionURL,
+			},
+		}
+	}
+
+	status := make(chan error)
+	for name, s := range services {
+		go func(serviceName, serviceCluster string) {
+			status <- awsecs.Deploy(migrationCmd, serviceName, serviceCluster, gitsha)
+		}(name, s.Cluster)
+	}
+
+	for i := 0; i < len(services); i++ {
+		if err := <-status; err != nil {
+			fmt.Fprintf(os.Stderr, "Failed deploying to aws. Error: %+v\n", err)
+			raven.CaptureErrorAndWait(err, nil)
+			os.Exit(1)
+		}
 	}
 
 	check := make(chan bool)
-	go checkDeployment(versionURL, gitsha, check)
+	for _, s := range services {
+		go checkDeployment(s.URL, gitsha, check)
+	}
 
-	select {
-	case <-check:
-		log.Printf("Version %s successfully deployed to %s\n", gitsha, service)
-		return
-	case <-time.After(timeoutMins * time.Minute):
-		log.Printf("Timed out while checking for deployed version on %s\n", service)
-		os.Exit(1)
+	// TODO figure out how to get the service name
+	for finished := 0; finished < len(services); finished++ {
+		select {
+		case <-check:
+			log.Printf("Version %s successfully deployed to %s\n", gitsha, service)
+		case <-time.After(timeoutMins * time.Minute):
+			log.Printf("Timed out while checking for deployed version on %s\n", service)
+			os.Exit(1)
+		}
 	}
 }
