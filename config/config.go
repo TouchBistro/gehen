@@ -1,8 +1,6 @@
 package config
 
 import (
-	"fmt"
-
 	"github.com/TouchBistro/gehen/util"
 	"github.com/pkg/errors"
 )
@@ -22,7 +20,7 @@ var config GehenConfig
 
 func Init(path string) error {
 	if !util.FileOrDirExists(path) {
-		return fmt.Errorf("No such file %s", path)
+		return errors.Errorf("No such file %s", path)
 	}
 
 	err := util.ReadYaml(path, &config)

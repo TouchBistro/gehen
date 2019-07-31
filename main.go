@@ -136,7 +136,8 @@ func main() {
 	}
 
 	for i := 0; i < len(services); i++ {
-		if err := <-status; err != nil {
+		err := <-status
+		if err != nil {
 			fmt.Fprintf(os.Stderr, "Failed deploying to aws. Error: %+v\n", err)
 			raven.CaptureErrorAndWait(err, nil)
 			os.Exit(1)
