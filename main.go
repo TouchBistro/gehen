@@ -59,7 +59,7 @@ func fetchRevisionSha(url string) (string, error) {
 }
 
 func checkDeployment(name, url, deployedSha string, check chan string) {
-	log.Printf("Checking %s for newly deployed version\n", versionURL)
+	log.Printf("Checking %s for newly deployed version\n", url)
 
 	for {
 		time.Sleep(checkIntervalSecs * time.Second)
