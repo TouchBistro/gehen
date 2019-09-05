@@ -69,10 +69,13 @@ func Deploy(migrationCmd, service, cluster, gitsha string) error {
 	newTaskArn := taskDefReg.TaskDefinition.TaskDefinitionArn
 	log.Printf("Registered new task definition %s, updating service %s\n", *newTaskArn, service)
 
+	redeploy := true
+
 	serviceUpdateInput := &ecs.UpdateServiceInput{
-		TaskDefinition: newTaskArn,
-		Service:        &service,
-		Cluster:        &cluster,
+		TaskDefinition:     newTaskArn,
+		Service:            &service,
+		Cluster:            &cluster,
+		ForceNewDeployment: &redeploy,
 	}
 
 	_, err = svc.UpdateService(serviceUpdateInput)
