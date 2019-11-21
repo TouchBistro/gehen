@@ -64,7 +64,13 @@ func fetchRevisionSha(url string) (string, error) {
 }
 
 func checkLifeAlert(url string) error {
-	resp, err := http.Get(url)
+	client := &http.Client{}
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return errors.New(fmt.Sprintf("Failed to build HTTP request for %s", url))
+	}
+	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", os.Getenv("CHECKER_BEARER_TOKEN")))
+	resp, err := client.Do(req)
 	if resp != nil {
 		defer resp.Body.Close()
 	}
