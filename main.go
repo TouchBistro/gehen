@@ -80,7 +80,7 @@ func checkLifeAlert(url string) error {
 	}
 
 	if resp.StatusCode != 200 {
-		return errors.New(fmt.Sprintf("Error HTTP Status %d returned from Life Alert check", resp.StatusCode))
+		return errors.New(fmt.Sprintf("Error HTTP Status %d returned from Life Alert check with error %s", resp.StatusCode, resp.Body))
 	}
 
 	return nil
@@ -109,7 +109,6 @@ func checkDeployment(name, url, testUrl, deployedSha string, check chan deployme
 				if err != nil {
 					log.Printf("Help! I've fallen and I can't get up!: %+v", err) // TODO: Remove if this is too noisy
 					dep.err = err
-					continue
 				}
 			}
 
