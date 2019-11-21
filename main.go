@@ -58,7 +58,24 @@ func fetchRevisionSha(url string) (string, error) {
 	return string(bodySha), nil
 }
 
-func checkDeployment(name, url, deployedSha string, check chan string) {
+func checkLifeAlert(url string) error {
+	resp, err := http.Get(url)
+	if resp != nil {
+		defer resp.Body.Close()
+	}
+
+	if err != nil {
+		return errors.New(fmt.Sprintf("Failed to HTTP GET %s", url))
+	}
+
+	if resp.StatusCode != 200 {
+		return errors.New(fmt.Sprintf("Error HTTP Status %d returned from Life Alert check", resp.StatusCode))
+	}
+
+	return nil
+}
+
+func checkDeployment(name, url, testUrl, deployedSha string, check chan string) {
 	log.Printf("Checking %s for newly deployed version\n", url)
 
 	for {
@@ -73,6 +90,15 @@ func checkDeployment(name, url, deployedSha string, check chan string) {
 
 		log.Printf("Got %s from %s\n", fetchedSha, url)
 		if len(fetchedSha) > 7 && strings.HasPrefix(deployedSha, fetchedSha) {
+			if testUrl != "" {
+				log.Printf("Checking %s for life-alert test suite\n", testUrl)
+				err := checkLifeAlert(testUrl)
+				if err != nil {
+					log.Printf("Help! I've fallen and I can't get up!: %+v", err) // TODO: Remove if this is too noisy
+					continue
+				}
+			}
+
 			check <- name
 			return
 		}
@@ -146,7 +172,7 @@ func main() {
 
 	check := make(chan string)
 	for name, s := range services {
-		go checkDeployment(name, s.URL, gitsha, check)
+		go checkDeployment(name, s.URL, s.TestURL, gitsha, check)
 	}
 
 	for finished := 0; finished < len(services); finished++ {
