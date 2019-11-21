@@ -12,7 +12,7 @@ import (
 
 	"github.com/TouchBistro/gehen/awsecs"
 	"github.com/TouchBistro/gehen/config"
-	"github.com/getsentry/raven-go"
+	"github.com/getsentry/sentry-go"
 	"github.com/pkg/errors"
 )
 
@@ -134,7 +134,7 @@ func parseFlags() {
 }
 
 func main() {
-	err := raven.SetDSN(os.Getenv("SENTRY_DSN"))
+	err := sentry.Init(sentry.ClientOptions{Dsn: os.Getenv("SENTRY_DSN")})
 	if err != nil {
 		log.Fatal("SENTRY_DSN is not set")
 	}
@@ -173,7 +173,7 @@ func main() {
 		err := <-status
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Failed deploying to aws. Error: %+v\n", err)
-			raven.CaptureErrorAndWait(err, nil)
+			sentry.CaptureException(err)
 			os.Exit(1)
 		}
 	}
