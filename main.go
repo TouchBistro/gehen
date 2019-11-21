@@ -22,12 +22,13 @@ const (
 )
 
 var (
-	cluster      string
-	service      string
-	gitsha       string
-	migrationCmd string
-	versionURL   string
-	configPath   string
+	cluster            string
+	service            string
+	gitsha             string
+	migrationCmd       string
+	versionURL         string
+	configPath         string
+	checkerBearerToken string
 )
 
 type deployment struct {
@@ -64,7 +65,13 @@ func fetchRevisionSha(url string) (string, error) {
 }
 
 func checkLifeAlert(url string) error {
-	resp, err := http.Get(url)
+	client := &http.Client{}
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return errors.New(fmt.Sprintf("Failed to build HTTP request for %s", url))
+	}
+	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", checkerBearerToken))
+	resp, err := client.Do(req)
 	if resp != nil {
 		defer resp.Body.Close()
 	}
@@ -120,6 +127,7 @@ func parseFlags() {
 	flag.StringVar(&migrationCmd, "migrate", "", "Launch a one-off migration task along with the service update")
 	flag.StringVar(&versionURL, "url", "", "The URL to check for the deployed version")
 	flag.StringVar(&configPath, "path", "", "The path to a gehen.yml config file")
+	flag.StringVar(&checkerBearerToken, "checkerBearerToken", "", "The bearer token to use to contact infrastructure-checker-service")
 
 	flag.Parse()
 
