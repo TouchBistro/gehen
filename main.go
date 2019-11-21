@@ -80,7 +80,7 @@ func checkLifeAlert(url string) error {
 	return nil
 }
 
-func checkDeployment(name, url string, testUrl *string, deployedSha string, check chan deployment) {
+func checkDeployment(name, url, testUrl, deployedSha string, check chan deployment) {
 	log.Printf("Checking %s for newly deployed version\n", url)
 
 	for {
@@ -97,9 +97,9 @@ func checkDeployment(name, url string, testUrl *string, deployedSha string, chec
 		if len(fetchedSha) > 7 && strings.HasPrefix(deployedSha, fetchedSha) {
 			dep := deployment{name: name}
 
-			if testUrl != nil {
-				log.Printf("Checking %s for life-alert test suite\n", *testUrl)
-				err := checkLifeAlert(*testUrl)
+			if testUrl != "" {
+				log.Printf("Checking %s for life-alert test suite\n", testUrl)
+				err := checkLifeAlert(testUrl)
 				if err != nil {
 					log.Printf("Help! I've fallen and I can't get up!: %+v", err) // TODO: Remove if this is too noisy
 					dep.err = err
