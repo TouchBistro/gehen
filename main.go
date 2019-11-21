@@ -79,8 +79,14 @@ func checkLifeAlert(url string) error {
 		return errors.New(fmt.Sprintf("Failed to HTTP GET %s", url))
 	}
 
+	body, err := ioutil.ReadAll(resp.Body)
+
+	if err != nil {
+		return errors.New(fmt.Sprintf("Could not parse body from %s", url))
+	}
+
 	if resp.StatusCode != 200 {
-		return errors.New(fmt.Sprintf("Error HTTP Status %d returned from Life Alert check with error %s", resp.StatusCode, resp.Body))
+		return errors.New(fmt.Sprintf("Error HTTP Status %d returned from Life Alert check with error %s", resp.StatusCode, string(body)))
 	}
 
 	return nil
