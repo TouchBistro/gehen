@@ -79,8 +79,14 @@ func checkLifeAlert(url string) error {
 		return errors.New(fmt.Sprintf("Failed to HTTP GET %s", url))
 	}
 
+	body, err := ioutil.ReadAll(resp.Body)
+
+	if err != nil {
+		return errors.New(fmt.Sprintf("Could not parse body from %s", url))
+	}
+
 	if resp.StatusCode != 200 {
-		return errors.New(fmt.Sprintf("Error HTTP Status %d returned from Life Alert check", resp.StatusCode))
+		return errors.New(fmt.Sprintf("Error HTTP Status %d returned from Life Alert check with error %s", resp.StatusCode, string(body)))
 	}
 
 	return nil
@@ -109,7 +115,6 @@ func checkDeployment(name, url, testUrl, deployedSha string, check chan deployme
 				if err != nil {
 					log.Printf("Help! I've fallen and I can't get up!: %+v", err) // TODO: Remove if this is too noisy
 					dep.err = err
-					continue
 				}
 			}
 
@@ -193,7 +198,7 @@ func main() {
 		select {
 		case deployment := <-check:
 			if deployment.err != nil {
-				log.Printf("Version %s successfully deployed to %s\n", gitsha, deployment.name)
+				log.Printf("Version %s unsuccessfuly not deployed to %s\n", gitsha, deployment.name)
 				os.Exit(1)
 			}
 			log.Printf("Version %s successfully deployed to %s\n", gitsha, deployment.name)
