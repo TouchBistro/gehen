@@ -30,6 +30,11 @@ var (
 	configPath   string
 )
 
+type deployment struct {
+	name string
+	err  error
+}
+
 func fetchRevisionSha(url string) (string, error) {
 	resp, err := http.Get(url)
 	if resp != nil {
@@ -75,7 +80,7 @@ func checkLifeAlert(url string) error {
 	return nil
 }
 
-func checkDeployment(name, url, testUrl, deployedSha string, check chan string) {
+func checkDeployment(name, url, testUrl, deployedSha string, check chan deployment) {
 	log.Printf("Checking %s for newly deployed version\n", url)
 
 	for {
@@ -90,16 +95,19 @@ func checkDeployment(name, url, testUrl, deployedSha string, check chan string) 
 
 		log.Printf("Got %s from %s\n", fetchedSha, url)
 		if len(fetchedSha) > 7 && strings.HasPrefix(deployedSha, fetchedSha) {
+			dep := deployment{name: name}
+
 			if testUrl != "" {
 				log.Printf("Checking %s for life-alert test suite\n", testUrl)
 				err := checkLifeAlert(testUrl)
 				if err != nil {
 					log.Printf("Help! I've fallen and I can't get up!: %+v", err) // TODO: Remove if this is too noisy
+					dep.err = err
 					continue
 				}
 			}
 
-			check <- name
+			check <- dep
 			return
 		}
 	}
@@ -170,15 +178,19 @@ func main() {
 		}
 	}
 
-	check := make(chan string)
+	check := make(chan deployment)
 	for name, s := range services {
 		go checkDeployment(name, s.URL, s.TestURL, gitsha, check)
 	}
 
 	for finished := 0; finished < len(services); finished++ {
 		select {
-		case name := <-check:
-			log.Printf("Version %s successfully deployed to %s\n", gitsha, name)
+		case deployment := <-check:
+			if deployment.err != nil {
+				log.Printf("Version %s successfully deployed to %s\n", gitsha, deployment.name)
+				os.Exit(1)
+			}
+			log.Printf("Version %s successfully deployed to %s\n", gitsha, deployment.name)
 		case <-time.After(timeoutMins * time.Minute):
 			log.Println("Timed out while checking for deployed version of services")
 			os.Exit(1)
