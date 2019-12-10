@@ -196,12 +196,12 @@ func main() {
 
 	for finished := 0; finished < len(services); finished++ {
 		select {
-		case deployment := <-check:
-			if deployment.err != nil {
-				log.Printf("Version %s failed deployment to %s\n", gitsha, deployment.name)
+		case dep := <-check:
+			if dep.err != nil {
+				log.Printf("Version %s failed deployment to %s\n", gitsha, dep.name)
 				os.Exit(1)
 			}
-			log.Printf("Version %s successfully deployed to %s\n", gitsha, deployment.name)
+			log.Printf("Version %s successfully deployed to %s\n", gitsha, dep.name)
 		case <-time.After(timeoutMins * time.Minute):
 			log.Println("Timed out while checking for deployed version of services")
 			os.Exit(1)
