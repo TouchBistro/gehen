@@ -198,7 +198,7 @@ func main() {
 		select {
 		case deployment := <-check:
 			if deployment.err != nil {
-				log.Printf("Version %s unsuccessfuly not deployed to %s\n", gitsha, deployment.name)
+				log.Printf("Version %s failed deployment to %s\n", gitsha, deployment.name)
 				os.Exit(1)
 			}
 			log.Printf("Version %s successfully deployed to %s\n", gitsha, deployment.name)
