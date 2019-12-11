@@ -12,7 +12,7 @@ import (
 
 	"github.com/TouchBistro/gehen/awsecs"
 	"github.com/TouchBistro/gehen/config"
-	"github.com/getsentry/raven-go"
+	"github.com/getsentry/sentry-go"
 	"github.com/pkg/errors"
 )
 
@@ -145,7 +145,7 @@ func parseFlags() {
 }
 
 func main() {
-	err := raven.SetDSN(os.Getenv("SENTRY_DSN"))
+	err := sentry.Init(sentry.ClientOptions{Dsn: os.Getenv("SENTRY_DSN")})
 	if err != nil {
 		log.Fatal("SENTRY_DSN is not set")
 	}
@@ -184,7 +184,7 @@ func main() {
 		err := <-status
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Failed deploying to aws. Error: %+v\n", err)
-			raven.CaptureErrorAndWait(err, nil)
+			sentry.CaptureException(err)
 			os.Exit(1)
 		}
 	}
@@ -196,12 +196,12 @@ func main() {
 
 	for finished := 0; finished < len(services); finished++ {
 		select {
-		case deployment := <-check:
-			if deployment.err != nil {
-				log.Printf("Version %s unsuccessfuly not deployed to %s\n", gitsha, deployment.name)
+		case dep := <-check:
+			if dep.err != nil {
+				log.Printf("Version %s failed deployment to %s\n", gitsha, dep.name)
 				os.Exit(1)
 			}
-			log.Printf("Version %s successfully deployed to %s\n", gitsha, deployment.name)
+			log.Printf("Version %s successfully deployed to %s\n", gitsha, dep.name)
 		case <-time.After(timeoutMins * time.Minute):
 			log.Println("Timed out while checking for deployed version of services")
 			os.Exit(1)
