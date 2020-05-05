@@ -2,19 +2,15 @@ package main
 
 import (
 	"flag"
-	"fmt"
-	"io/ioutil"
 	"log"
-	"net/http"
 	"os"
-	"strings"
 	"time"
 
 	"github.com/TouchBistro/gehen/awsecs"
+	"github.com/TouchBistro/gehen/check"
 	"github.com/TouchBistro/gehen/config"
 	"github.com/TouchBistro/goutils/fatal"
 	"github.com/getsentry/sentry-go"
-	"github.com/pkg/errors"
 )
 
 const (
@@ -23,11 +19,8 @@ const (
 )
 
 var (
-	cluster      string
-	service      string
 	gitsha       string
 	migrationCmd string
-	versionURL   string
 	configPath   string
 )
 
@@ -36,97 +29,34 @@ type deployment struct {
 	err  error
 }
 
-func fetchRevisionSha(url string) (string, error) {
-	resp, err := http.Get(url)
-	if resp != nil {
-		defer resp.Body.Close()
-	}
-
-	if err != nil {
-		return "", errors.Errorf("Failed to HTTP GET %s", url)
-	}
-
-	// Check status
-	if resp.StatusCode != 200 {
-		return "", errors.Errorf("Received non 200 status from %s", url)
-	}
-
-	// Check if revision sha is in the http Server header.
-	if header := resp.Header.Get("Server"); header != "" {
-		// TODO: use a regular expression
-		t := strings.Split(header, "-")
-		if len(t) > 1 {
-			return t[len(t)-1], nil
-		}
-	}
-
-	// Check if revision sha is in the body
-	bodySha, err := ioutil.ReadAll(resp.Body)
-	if err != nil {
-		return "", errors.Errorf("Failed to parse body from %s", url)
-	}
-
-	return string(bodySha), nil
-}
-
-func checkLifeAlert(url string) error {
-	client := &http.Client{}
-	req, err := http.NewRequest("GET", url, nil)
-	if err != nil {
-		return errors.Errorf("Failed to build HTTP request for %s", url)
-	}
-
-	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", os.Getenv("CHECKER_BEARER_TOKEN")))
-	resp, err := client.Do(req)
-	if resp != nil {
-		defer resp.Body.Close()
-	}
-
-	if err != nil {
-		return errors.Errorf("Failed to HTTP GET %s", url)
-	}
-
-	body, err := ioutil.ReadAll(resp.Body)
-	if err != nil {
-		return errors.Errorf("Could not parse body from %s", url)
-	}
-
-	if resp.StatusCode != 200 {
-		return errors.Errorf("Error HTTP Status %d returned from Life Alert check with error %s", resp.StatusCode, string(body))
-	}
-
-	return nil
-}
-
-func checkDeployment(name, url, testUrl, deployedSha string, check chan deployment) {
+func checkDeployment(url, testURL, expectedSha string) error {
 	log.Printf("Checking %s for newly deployed version\n", url)
 
 	for {
 		time.Sleep(checkIntervalSecs * time.Second)
 
-		fetchedSha, err := fetchRevisionSha(url)
+		ok, err := check.Deploy(url, expectedSha)
 		if err != nil {
-			log.Printf("Could not parse a gitsha version from header or body at %s\n", url)
-			log.Printf("Error: %+v", err) // TODO: Remove if this is too noisy
+			log.Printf("%+v", err) // TODO: Remove if this is too noisy
 			continue
 		}
 
-		log.Printf("Got %s from %s\n", fetchedSha, url)
-		if len(fetchedSha) > 7 && strings.HasPrefix(deployedSha, fetchedSha) {
-			dep := deployment{name: name}
-
-			if testUrl != "" {
-				log.Printf("Checking %s for life-alert test suite\n", testUrl)
-				err := checkLifeAlert(testUrl)
-				if err != nil {
-					log.Printf("Help! I've fallen and I can't get up!: %+v", err) // TODO: Remove if this is too noisy
-					dep.err = err
-				}
-			}
-
-			check <- dep
-			return
+		// Not deployed yet, keep checking
+		if !ok {
+			continue
 		}
+
+		// Successfully deployed, run smoke test if it exists
+		if testURL != "" {
+			log.Printf("Checking %s for smoke-test test suite\n", testURL)
+			err := check.SmokeTest(testURL)
+			if err != nil {
+				log.Printf("Help! I've fallen and I can't get up!: %+v", err) // TODO: Remove if this is too noisy
+				return err
+			}
+		}
+
+		return nil
 	}
 }
 
@@ -153,23 +83,14 @@ func main() {
 	parseFlags()
 
 	var services config.ServiceMap
-	if configPath != "" {
-		err = config.Init(configPath)
-		if err != nil {
-			fatal.ExitErr(err, "Failed reading config file.")
-		}
+	err = config.Init(configPath)
+	if err != nil {
+		fatal.ExitErr(err, "Failed reading config file.")
+	}
 
-		services = config.Config().Services
-		if len(services) == 0 {
-			fatal.Exit("gehen.yml must contain at least one service")
-		}
-	} else {
-		services = config.ServiceMap{
-			service: {
-				Cluster: cluster,
-				URL:     versionURL,
-			},
-		}
+	services = config.Config().Services
+	if len(services) == 0 {
+		fatal.Exit("gehen.yml must contain at least one service")
 	}
 
 	status := make(chan error)
@@ -189,7 +110,13 @@ func main() {
 
 	check := make(chan deployment)
 	for name, s := range services {
-		go checkDeployment(name, s.URL, s.TestURL, gitsha, check)
+		go func(name, gitsha string, service config.Service) {
+			err := checkDeployment(service.URL, service.TestURL, gitsha)
+			check <- deployment{
+				name: name,
+				err:  err,
+			}
+		}(name, gitsha, s)
 	}
 
 	for finished := 0; finished < len(services); finished++ {
