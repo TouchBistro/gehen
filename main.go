@@ -131,22 +131,17 @@ func checkDeployment(name, url, testUrl, deployedSha string, check chan deployme
 }
 
 func parseFlags() {
-	flag.StringVar(&cluster, "cluster", "", "The full cluster ARN to deploy this service to")
-	flag.StringVar(&service, "service", "", "The service name running this service on ECS")
 	flag.StringVar(&gitsha, "gitsha", "", "The gitsha of the version to be deployed")
 	flag.StringVar(&migrationCmd, "migrate", "", "Launch a one-off migration task along with the service update")
-	flag.StringVar(&versionURL, "url", "", "The URL to check for the deployed version")
 	flag.StringVar(&configPath, "path", "", "The path to a gehen.yml config file")
 
 	flag.Parse()
 
-	// gitsha is always required, then require either path or cluster and service and versionURL
+	// gitsha and path are required
 	if gitsha == "" {
-		log.Fatalln("Must provide gitsha")
-	} else if configPath == "" && (cluster == "" || service == "" || versionURL == "") {
-		log.Fatalln("Must provide cluster, service, and versionURL")
-	} else if configPath != "" && (cluster != "" || service != "" || versionURL != "") {
-		log.Fatalln("Must specify either configPath or all of cluster, service, and versionURL")
+		fatal.Exit("Must provide a gitsha")
+	} else if configPath == "" {
+		fatal.Exit("Must provide the path to a gehen.yml file")
 	}
 }
 
