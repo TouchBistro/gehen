@@ -3,14 +3,24 @@ Gehen is a mininal version update aid for ECS services. It assumes the service i
 
 ```
 Usage of ./gehen:
-  -cluster string
-    	The full cluster ARN to deploy this service to
   -gitsha string
-    	The gitsha of the version to be deployed
+        The gitsha of the version to be deployed
   -migrate string
-    	Launch a one-off migration task along with the service update
-  -service string
-    	The service name running this service on ECS
-  -url string
-    	The URL to check for the deployed version
+        Launch a one-off migration task along with the service update
+  -path string
+        The path to a gehen.yml config file
+```
+
+## Configuration
+
+Gehen is configured through a `gehen.yml` file. This contains the list of ECS services to deploy to. You can specify multiple services to deploy the service to multiple environments.
+
+The schema is as follows:
+
+```yaml
+services: # A map of services
+  <service-name>: # The name of the ECS service
+    cluster: string # The ECS cluster the service is in
+    url: string # The URL to use to check that the new version has been deployed
+    testUrl: string # A URL to perform a smoke test against the service (optional)
 ```
