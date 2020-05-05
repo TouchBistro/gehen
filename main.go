@@ -12,6 +12,7 @@ import (
 
 	"github.com/TouchBistro/gehen/awsecs"
 	"github.com/TouchBistro/gehen/config"
+	"github.com/TouchBistro/goutils/fatal"
 	"github.com/getsentry/sentry-go"
 	"github.com/pkg/errors"
 )
@@ -42,7 +43,7 @@ func fetchRevisionSha(url string) (string, error) {
 	}
 
 	if err != nil {
-		return "", errors.New(fmt.Sprintf("Failed to HTTP GET %s", url))
+		return "", errors.Errorf("Failed to HTTP GET %s", url)
 	}
 
 	// Check status
@@ -62,7 +63,7 @@ func fetchRevisionSha(url string) (string, error) {
 	// Check if revision sha is in the body
 	bodySha, err := ioutil.ReadAll(resp.Body)
 	if err != nil {
-		return "", errors.New(fmt.Sprintf("Failed to parse body from %s", url))
+		return "", errors.Errorf("Failed to parse body from %s", url)
 	}
 
 	return string(bodySha), nil
@@ -72,8 +73,9 @@ func checkLifeAlert(url string) error {
 	client := &http.Client{}
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
-		return errors.New(fmt.Sprintf("Failed to build HTTP request for %s", url))
+		return errors.Errorf("Failed to build HTTP request for %s", url)
 	}
+
 	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", os.Getenv("CHECKER_BEARER_TOKEN")))
 	resp, err := client.Do(req)
 	if resp != nil {
@@ -81,17 +83,16 @@ func checkLifeAlert(url string) error {
 	}
 
 	if err != nil {
-		return errors.New(fmt.Sprintf("Failed to HTTP GET %s", url))
+		return errors.Errorf("Failed to HTTP GET %s", url)
 	}
 
 	body, err := ioutil.ReadAll(resp.Body)
-
 	if err != nil {
-		return errors.New(fmt.Sprintf("Could not parse body from %s", url))
+		return errors.Errorf("Could not parse body from %s", url)
 	}
 
 	if resp.StatusCode != 200 {
-		return errors.New(fmt.Sprintf("Error HTTP Status %d returned from Life Alert check with error %s", resp.StatusCode, string(body)))
+		return errors.Errorf("Error HTTP Status %d returned from Life Alert check with error %s", resp.StatusCode, string(body))
 	}
 
 	return nil
@@ -152,7 +153,7 @@ func parseFlags() {
 func main() {
 	err := sentry.Init(sentry.ClientOptions{Dsn: os.Getenv("SENTRY_DSN")})
 	if err != nil {
-		log.Fatal("SENTRY_DSN is not set")
+		fatal.Exit("SENTRY_DSN is not set")
 	}
 	parseFlags()
 
@@ -160,14 +161,12 @@ func main() {
 	if configPath != "" {
 		err = config.Init(configPath)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Failed reading config file. Error: %+v\n", err)
-			os.Exit(1)
+			fatal.ExitErr(err, "Failed reading config file.")
 		}
 
 		services = config.Config().Services
 		if len(services) == 0 {
-			fmt.Fprintln(os.Stderr, "gehen.yml must contain at least one service")
-			os.Exit(1)
+			fatal.Exit("gehen.yml must contain at least one service")
 		}
 	} else {
 		services = config.ServiceMap{
@@ -188,9 +187,8 @@ func main() {
 	for i := 0; i < len(services); i++ {
 		err := <-status
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Failed deploying to aws. Error: %+v\n", err)
 			sentry.CaptureException(err)
-			os.Exit(1)
+			fatal.ExitErr(err, "Failed deploying to AWS.")
 		}
 	}
 
