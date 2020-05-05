@@ -45,6 +45,11 @@ func fetchRevisionSha(url string) (string, error) {
 		return "", errors.New(fmt.Sprintf("Failed to HTTP GET %s", url))
 	}
 
+	// Check status
+	if resp.StatusCode != 200 {
+		return "", errors.Errorf("Received non 200 status from %s", url)
+	}
+
 	// Check if revision sha is in the http Server header.
 	if header := resp.Header.Get("Server"); header != "" {
 		// TODO: use a regular expression
