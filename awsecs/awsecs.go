@@ -5,6 +5,7 @@ import (
 	"log"
 	"strings"
 
+	"github.com/DataDog/datadog-go/statsd"
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/arn"
 	"github.com/aws/aws-sdk-go/aws/session"
@@ -12,7 +13,7 @@ import (
 	"github.com/pkg/errors"
 )
 
-func Deploy(migrationCmd, service, cluster, gitsha string) error {
+func Deploy(migrationCmd, service, cluster, gitsha string, statsdClient *statsd.Client, serviceTags *[]string, deployKey *string) error {
 	// Ensure we've been passed a valid cluster ARN and exit if not
 	clusterArn, err := arn.Parse(cluster)
 	if err != nil {
@@ -52,6 +53,7 @@ func Deploy(migrationCmd, service, cluster, gitsha string) error {
 
 	// Convert API output to be ready to update task.
 	newTask := taskOutToIn(*taskData)
+	var dockerTags map[string]*string
 
 	// Update each container in task def to use same repo with new tag/sha
 	for i, container := range newTask.ContainerDefinitions {
@@ -59,6 +61,13 @@ func Deploy(migrationCmd, service, cluster, gitsha string) error {
 		newImage := fmt.Sprintf("%s:%s", strings.Join(t[:len(t)-1], ""), gitsha)
 		log.Print("Changing container image " + *container.Image + " to " + newImage)
 		*newTask.ContainerDefinitions[i].Image = newImage
+		dockerTags = container.DockerLabels
+	}
+
+	var tags []string
+	for tag, value := range dockerTags {
+		newTag := tag + ":" + *value
+		tags = append(tags, newTag)
 	}
 
 	taskDefReg, err := svc.RegisterTaskDefinition(&newTask)
@@ -79,6 +88,23 @@ func Deploy(migrationCmd, service, cluster, gitsha string) error {
 	if err != nil {
 		return errors.Wrap(err, "cannot update new task definition: ")
 	}
+	event := &statsd.Event{
+		// Title of the event.  Required.
+		Title: "Gehen Deploy Started",
+		// Text is the description of the event.  Required.
+		Text: "Gehen started a deploy for service " + service,
+		// AggregationKey groups this event with others of the same key.
+		AggregationKey: *newTaskArn,
+		// Tags for the event.
+		Tags: tags,
+	}
+
+	err = statsdClient.Event(event)
+	if err != nil {
+		return errors.Wrap(err, "cannot send statsd event")
+	}
+	serviceTags = &tags
+	deployKey = newTaskArn
 
 	// run migration command if one exists
 	if migrationCmd == "" {

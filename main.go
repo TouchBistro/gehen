@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/DataDog/datadog-go/statsd"
 	"github.com/TouchBistro/gehen/awsecs"
 	"github.com/TouchBistro/gehen/config"
 	"github.com/TouchBistro/goutils/fatal"
@@ -98,7 +99,7 @@ func checkLifeAlert(url string) error {
 	return nil
 }
 
-func checkDeployment(name, url, testUrl, deployedSha string, check chan deployment) {
+func checkDeployment(name, url, testUrl, deployedSha string, check chan deployment, statsdClient *statsd.Client, tags *[]string, key *string) {
 	log.Printf("Checking %s for newly deployed version\n", url)
 
 	for {
@@ -122,6 +123,21 @@ func checkDeployment(name, url, testUrl, deployedSha string, check chan deployme
 					log.Printf("Help! I've fallen and I can't get up!: %+v", err) // TODO: Remove if this is too noisy
 					dep.err = err
 				}
+			}
+
+			if dep.err != nil {
+				event := &statsd.Event{
+					// Title of the event.  Required.
+					Title: "Gehen Deploy Successful",
+					// Text is the description of the event.  Required.
+					Text: "Gehen succeeded in deploying " + url,
+					// AggregationKey groups this event with others of the same key.
+					AggregationKey: *key,
+					// Tags for the event.
+					Tags: *tags,
+				}
+
+				dep.err = statsdClient.Event(event)
 			}
 
 			check <- dep
@@ -150,6 +166,10 @@ func main() {
 	if err != nil {
 		fatal.Exit("SENTRY_DSN is not set")
 	}
+	statsd, err := statsd.New(os.Getenv("DD_AGENT_HOST"))
+	if err != nil {
+		log.Fatal("STATSD_HOSTPORT is not set or could not be reached")
+	}
 	parseFlags()
 
 	var services config.ServiceMap
@@ -175,7 +195,7 @@ func main() {
 	status := make(chan error)
 	for name, s := range services {
 		go func(serviceName, serviceCluster string) {
-			status <- awsecs.Deploy(migrationCmd, serviceName, serviceCluster, gitsha)
+			status <- awsecs.Deploy(migrationCmd, serviceName, serviceCluster, gitsha, statsd, services[name].Tags, services[name].DeployKey)
 		}(name, s.Cluster)
 	}
 
@@ -189,7 +209,7 @@ func main() {
 
 	check := make(chan deployment)
 	for name, s := range services {
-		go checkDeployment(name, s.URL, s.TestURL, gitsha, check)
+		go checkDeployment(name, s.URL, s.TestURL, gitsha, check, statsd, services[name].Tags, services[name].DeployKey)
 	}
 
 	for finished := 0; finished < len(services); finished++ {
