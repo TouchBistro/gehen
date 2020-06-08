@@ -103,8 +103,8 @@ func Deploy(migrationCmd, service, cluster, gitsha string, statsdClient *statsd.
 	if err != nil {
 		return errors.Wrap(err, "cannot send statsd event")
 	}
-	serviceTags = &tags
-	deployKey = newTaskArn
+	*serviceTags = *&tags
+	*deployKey = *newTaskArn
 
 	// run migration command if one exists
 	if migrationCmd == "" {
