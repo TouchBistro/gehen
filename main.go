@@ -194,9 +194,9 @@ func main() {
 
 	status := make(chan error)
 	for name, s := range services {
-		go func(serviceName, serviceCluster string) {
-			status <- awsecs.Deploy(migrationCmd, serviceName, serviceCluster, gitsha, statsd, services[name].Tags, services[name].DeployKey)
-		}(name, s.Cluster)
+		go func(serviceName, serviceCluster string, serviceTags *[]string, deployKey *string) {
+			status <- awsecs.Deploy(migrationCmd, serviceName, serviceCluster, gitsha, statsd, serviceTags, deployKey)
+		}(name, s.Cluster, services[name].Tags, services[name].DeployKey)
 	}
 
 	for i := 0; i < len(services); i++ {
