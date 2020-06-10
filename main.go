@@ -171,16 +171,9 @@ func main() {
 
 	status := make(chan error)
 	for name, s := range services {
-		//init somewhere to store tags/deploy key to send on corresponding deploy successful
-		keyedService := services[name]
-		var deployKey string
-		var deployTags []string
-		keyedService.Tags = &deployTags
-		keyedService.DeployKey = &deployKey
-		services[name] = keyedService
-		go func(serviceName, serviceCluster string, serviceTags *[]string, deployKey *string) {
-			status <- awsecs.Deploy( /*migrationCmd, */ serviceName, serviceCluster, gitsha, statsd)
-		}(name, s.Cluster, services[name].Tags, services[name].DeployKey)
+		go func(serviceName, serviceCluster string) {
+			status <- awsecs.Deploy(serviceName, serviceCluster, gitsha, statsd)
+		}(name, s.Cluster)
 	}
 
 	for i := 0; i < len(services); i++ {
