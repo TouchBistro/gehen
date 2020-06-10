@@ -18,24 +18,18 @@ import (
 	"github.com/pkg/errors"
 )
 
-const (
-	timeoutMins       = 10 // deployment check timeout in minutes
-	checkIntervalSecs = 15 // check interval in seconds
-)
-
-var (
-	cluster      string
-	service      string
-	gitsha       string
-	migrationCmd string
-	versionURL   string
-	configPath   string
-)
-
 type deployment struct {
 	name string
 	err  error
 }
+
+var (
+	cluster    string
+	service    string
+	gitsha     string
+	versionURL string
+	configPath string
+)
 
 func fetchRevisionSha(url string) (string, error) {
 	resp, err := http.Get(url)
@@ -99,11 +93,11 @@ func checkLifeAlert(url string) error {
 	return nil
 }
 
-func checkDeployment(name, url, testUrl, deployedSha string, check chan deployment, statsdClient *statsd.Client, tags *[]string, key *string) {
+func checkDeployment(name, url, testUrl, deployedSha string, check chan deployment) {
 	log.Printf("Checking %s for newly deployed version\n", url)
 
 	for {
-		time.Sleep(checkIntervalSecs * time.Second)
+		time.Sleep(awsecs.CheckIntervalSecs * time.Second)
 
 		fetchedSha, err := fetchRevisionSha(url)
 		if err != nil {
@@ -124,22 +118,6 @@ func checkDeployment(name, url, testUrl, deployedSha string, check chan deployme
 					dep.err = err
 				}
 			}
-
-			if dep.err != nil {
-				event := &statsd.Event{
-					// Title of the event.  Required.
-					Title: "Gehen Deploy Successful",
-					// Text is the description of the event.  Required.
-					Text: "Gehen succeeded in deploying " + url,
-					// AggregationKey groups this event with others of the same key.
-					AggregationKey: *key,
-					// Tags for the event.
-					Tags: *tags,
-				}
-
-				dep.err = statsdClient.Event(event)
-			}
-
 			check <- dep
 			return
 		}
@@ -148,7 +126,6 @@ func checkDeployment(name, url, testUrl, deployedSha string, check chan deployme
 
 func parseFlags() {
 	flag.StringVar(&gitsha, "gitsha", "", "The gitsha of the version to be deployed")
-	flag.StringVar(&migrationCmd, "migrate", "", "Launch a one-off migration task along with the service update")
 	flag.StringVar(&configPath, "path", "", "The path to a gehen.yml config file")
 
 	flag.Parse()
@@ -202,7 +179,7 @@ func main() {
 		keyedService.DeployKey = &deployKey
 		services[name] = keyedService
 		go func(serviceName, serviceCluster string, serviceTags *[]string, deployKey *string) {
-			status <- awsecs.Deploy(migrationCmd, serviceName, serviceCluster, gitsha, statsd, serviceTags, deployKey)
+			status <- awsecs.Deploy( /*migrationCmd, */ serviceName, serviceCluster, gitsha, statsd)
 		}(name, s.Cluster, services[name].Tags, services[name].DeployKey)
 	}
 
@@ -216,7 +193,7 @@ func main() {
 
 	check := make(chan deployment)
 	for name, s := range services {
-		go checkDeployment(name, s.URL, s.TestURL, gitsha, check, statsd, services[name].Tags, services[name].DeployKey)
+		go checkDeployment(name, s.URL, s.TestURL, gitsha, check)
 	}
 
 	for finished := 0; finished < len(services); finished++ {
@@ -226,9 +203,24 @@ func main() {
 				log.Printf("Version %s failed deployment to %s\n", gitsha, dep.name)
 				os.Exit(1)
 			}
-			log.Printf("Version %s successfully deployed to %s\n", gitsha, dep.name)
-		case <-time.After(timeoutMins * time.Minute):
+			log.Printf("Traffic showing version %s on %s, waiting for old tasks to drain...\n", gitsha, dep.name)
+		case <-time.After(awsecs.TimeoutMins * time.Minute):
 			log.Println("Timed out while checking for deployed version of services")
+			os.Exit(1)
+		}
+	}
+
+	drained := make(chan string)
+	for name, s := range services {
+		go awsecs.CheckDrain(name, s.Cluster, drained, statsd)
+	}
+
+	for finished := 0; finished < len(services); finished++ {
+		select {
+		case name := <-drained:
+			log.Printf("Version %s successfully deployed to %s\n", gitsha, name)
+		case <-time.After(awsecs.TimeoutMins * time.Minute):
+			log.Println("Timed out while waiting for service to drain (old tasks are still running, go check datadog logs")
 			os.Exit(1)
 		}
 	}

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log"
 	"strings"
+	"time"
 
 	"github.com/DataDog/datadog-go/statsd"
 	"github.com/aws/aws-sdk-go/aws"
@@ -13,7 +14,12 @@ import (
 	"github.com/pkg/errors"
 )
 
-func Deploy(migrationCmd, service, cluster, gitsha string, statsdClient *statsd.Client, serviceTags *[]string, deployKey *string) error {
+const (
+	TimeoutMins       = 10 // deployment check timeout in minutes
+	CheckIntervalSecs = 15 // check interval in seconds
+)
+
+func Deploy(service, cluster, gitsha string, statsdClient *statsd.Client) error {
 	// Ensure we've been passed a valid cluster ARN and exit if not
 	clusterArn, err := arn.Parse(cluster)
 	if err != nil {
@@ -38,7 +44,6 @@ func Deploy(migrationCmd, service, cluster, gitsha string, statsdClient *statsd.
 	serviceData, err := svc.DescribeServices(serviceInput)
 	if err != nil {
 		return errors.Wrap(err, "cannot get current service: ")
-
 	}
 	log.Printf("Found current task def: %+v\n", *serviceData.Services[0].TaskDefinition)
 
@@ -103,45 +108,64 @@ func Deploy(migrationCmd, service, cluster, gitsha string, statsdClient *statsd.
 	if err != nil {
 		return errors.Wrap(err, "cannot send statsd event")
 	}
-	*serviceTags = tags
-	*deployKey = *newTaskArn
-
-	// run migration command if one exists
-	if migrationCmd == "" {
-		return nil
-	}
-
-	var containerOverrides []*ecs.ContainerOverride
-	var commandString []*string
-
-	commands := strings.Split(migrationCmd, " ")
-	for i := range commands {
-		commandString = append(commandString, &commands[i])
-	}
-
-	containerOverrides = append(containerOverrides, &ecs.ContainerOverride{
-		Name:    taskDefReg.TaskDefinition.ContainerDefinitions[0].Name,
-		Command: commandString,
-	})
-
-	runTaskOverride := &ecs.TaskOverride{
-		ContainerOverrides: containerOverrides,
-	}
-
-	runTaskInput := &ecs.RunTaskInput{
-		TaskDefinition: newTaskArn,
-		Overrides:      runTaskOverride,
-		Cluster:        &cluster,
-	}
-
-	log.Printf("Launching migration for %s service with command %s\n", service, migrationCmd)
-	taskRun, err := svc.RunTask(runTaskInput)
-	if err != nil {
-		return errors.Wrapf(err, "cannot run migration task for service %s with command %s\n", service, migrationCmd)
-	}
-	log.Println("Check for migration logs for " + service + " at https://app.datadoghq.com/logs?query=task_arn%3A\"" + *taskRun.Tasks[0].TaskArn + "\"")
-
 	return nil
+}
+
+func CheckDrain(service, cluster string, drained chan string, statsdClient *statsd.Client) {
+	// Connect to ECS API
+	sess := session.Must(session.NewSession(&aws.Config{
+		Region: aws.String("us-east-1"),
+	}))
+	svc := ecs.New(sess)
+
+	serviceInput := &ecs.DescribeServicesInput{
+		Services: []*string{
+			&service,
+		},
+		Cluster: &cluster,
+	}
+
+	for {
+		time.Sleep(CheckIntervalSecs * time.Second)
+		log.Printf("Checking task count on: %s\n", service)
+		serviceData, err := svc.DescribeServices(serviceInput)
+		if err != nil {
+			log.Printf("Could not get service %s\n", service)
+			log.Printf("Error: %+v", err) // TODO: Remove if this is too noisy
+			continue
+		}
+		if serviceData.Services[0].RunningCount == serviceData.Services[0].DesiredCount {
+			// Use resolved service info to grab existing task def
+			taskInput := &ecs.DescribeTaskDefinitionInput{
+				TaskDefinition: serviceData.Services[0].TaskDefinition,
+			}
+			taskData, err := svc.DescribeTaskDefinition(taskInput)
+			dockerTags := taskData.TaskDefinition.ContainerDefinitions[0].DockerLabels
+			var tags []string
+			for tag, value := range dockerTags {
+				newTag := tag + ":" + *value
+				tags = append(tags, newTag)
+			}
+			event := &statsd.Event{
+				// Title of the event.  Required.
+				Title: "Gehen Deploy Success",
+				// Text is the description of the event.  Required.
+				Text: "Gehen successfully deployed " + service,
+				// AggregationKey groups this event with others of the same key.
+				AggregationKey: *serviceData.Services[0].TaskDefinition,
+				// Tags for the event.
+				Tags: tags,
+			}
+
+			err = statsdClient.Event(event)
+			if err != nil {
+				log.Printf("Could not get service %s\n", service)
+				log.Printf("Error: %+v", err) // TODO: Remove if this is too noisy
+				continue
+			}
+			drained <- service
+		}
+	}
 }
 
 func taskOutToIn(input ecs.DescribeTaskDefinitionOutput) ecs.RegisterTaskDefinitionInput {
