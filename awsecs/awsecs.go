@@ -140,6 +140,11 @@ func CheckDrain(service, cluster string, drained chan string, statsdClient *stat
 				TaskDefinition: serviceData.Services[0].TaskDefinition,
 			}
 			taskData, err := svc.DescribeTaskDefinition(taskInput)
+			if err != nil {
+				log.Printf("Could not get service %s\n", service)
+				log.Printf("Error: %+v", err) // TODO: Remove if this is too noisy
+				continue
+			}
 			dockerTags := taskData.TaskDefinition.ContainerDefinitions[0].DockerLabels
 			var tags []string
 			for tag, value := range dockerTags {
