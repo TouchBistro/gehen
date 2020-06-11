@@ -14,10 +14,7 @@ import (
 	"github.com/pkg/errors"
 )
 
-const (
-	TimeoutMins       = 10 // deployment check timeout in minutes
-	CheckIntervalSecs = 15 // check interval in seconds
-)
+const CheckIntervalSecs = 15 // check interval in seconds
 
 func Deploy(service, cluster, gitsha string, statsdClient *statsd.Client) error {
 	// Ensure we've been passed a valid cluster ARN and exit if not
@@ -134,7 +131,7 @@ func CheckDrain(service, cluster string, drained chan string, statsdClient *stat
 			log.Printf("Error: %+v", err) // TODO: Remove if this is too noisy
 			continue
 		}
-		if serviceData.Services[0].RunningCount == serviceData.Services[0].DesiredCount {
+		if *serviceData.Services[0].RunningCount == *serviceData.Services[0].DesiredCount {
 			// Use resolved service info to grab existing task def
 			taskInput := &ecs.DescribeTaskDefinitionInput{
 				TaskDefinition: serviceData.Services[0].TaskDefinition,

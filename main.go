@@ -18,16 +18,15 @@ import (
 	"github.com/pkg/errors"
 )
 
+const timeoutMins = 5 // deployment check timeout in minutes
+
 type deployment struct {
 	name string
 	err  error
 }
 
 var (
-	cluster    string
-	service    string
 	gitsha     string
-	versionURL string
 	configPath string
 )
 
@@ -145,7 +144,7 @@ func main() {
 	}
 	statsd, err := statsd.New(os.Getenv("DD_AGENT_HOST"))
 	if err != nil {
-		log.Fatal("STATSD_HOSTPORT is not set or could not be reached")
+		log.Fatal("Could not create StatsD agent (DD_AGENT_HOST may not be set)")
 	}
 	parseFlags()
 
@@ -161,12 +160,7 @@ func main() {
 			fatal.Exit("gehen.yml must contain at least one service")
 		}
 	} else {
-		services = config.ServiceMap{
-			service: {
-				Cluster: cluster,
-				URL:     versionURL,
-			},
-		}
+		fatal.Exit("Error: No config path set")
 	}
 
 	status := make(chan error)
@@ -197,7 +191,7 @@ func main() {
 				os.Exit(1)
 			}
 			log.Printf("Traffic showing version %s on %s, waiting for old tasks to drain...\n", gitsha, dep.name)
-		case <-time.After(awsecs.TimeoutMins * time.Minute):
+		case <-time.After(timeoutMins * time.Minute):
 			log.Println("Timed out while checking for deployed version of services")
 			os.Exit(1)
 		}
@@ -212,7 +206,7 @@ func main() {
 		select {
 		case name := <-drained:
 			log.Printf("Version %s successfully deployed to %s\n", gitsha, name)
-		case <-time.After(awsecs.TimeoutMins * time.Minute):
+		case <-time.After(timeoutMins * time.Minute):
 			log.Println("Timed out while waiting for service to drain (old tasks are still running, go check datadog logs")
 			os.Exit(1)
 		}
