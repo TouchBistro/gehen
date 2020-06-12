@@ -64,9 +64,9 @@ func Deploy(service, cluster, gitsha string, statsdClient *statsd.Client, servic
 		newImage := fmt.Sprintf("%s:%s", strings.Join(t[:len(t)-1], ""), gitsha)
 		log.Print("Changing container image " + *container.Image + " to " + newImage)
 		*newTask.ContainerDefinitions[i].Image = newImage
-		dockerTags = container.DockerLabels
 	}
 
+	dockerTags = newTask.ContainerDefinitions[0].DockerLabels
 	var tags []string
 	for tag, value := range dockerTags {
 		newTag := tag + ":" + *value
