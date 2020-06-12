@@ -9,9 +9,11 @@ import (
 )
 
 type Service struct {
-	Cluster string `yaml:"cluster"`
-	URL     string `yaml:"url"`
-	TestURL string `yaml:"testUrl"`
+	Cluster        string   `yaml:"cluster"`
+	URL            string   `yaml:"url"`
+	TestURL        string   `yaml:"testUrl"`
+	TaskDefinition string   `yaml:"-"`
+	Tags           []string `yaml:"-"`
 }
 
 type ServiceMap = map[string]Service

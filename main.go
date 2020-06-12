@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/DataDog/datadog-go/statsd"
 	"github.com/TouchBistro/gehen/awsecs"
 	"github.com/TouchBistro/gehen/config"
 	"github.com/TouchBistro/goutils/fatal"
@@ -17,24 +18,17 @@ import (
 	"github.com/pkg/errors"
 )
 
-const (
-	timeoutMins       = 10 // deployment check timeout in minutes
-	checkIntervalSecs = 15 // check interval in seconds
-)
-
-var (
-	cluster      string
-	service      string
-	gitsha       string
-	migrationCmd string
-	versionURL   string
-	configPath   string
-)
+const timeoutMins = 5 // deployment check timeout in minutes
 
 type deployment struct {
 	name string
 	err  error
 }
+
+var (
+	gitsha     string
+	configPath string
+)
 
 func fetchRevisionSha(url string) (string, error) {
 	resp, err := http.Get(url)
@@ -102,7 +96,7 @@ func checkDeployment(name, url, testUrl, deployedSha string, check chan deployme
 	log.Printf("Checking %s for newly deployed version\n", url)
 
 	for {
-		time.Sleep(checkIntervalSecs * time.Second)
+		time.Sleep(awsecs.CheckIntervalSecs * time.Second)
 
 		fetchedSha, err := fetchRevisionSha(url)
 		if err != nil {
@@ -123,7 +117,6 @@ func checkDeployment(name, url, testUrl, deployedSha string, check chan deployme
 					dep.err = err
 				}
 			}
-
 			check <- dep
 			return
 		}
@@ -132,7 +125,6 @@ func checkDeployment(name, url, testUrl, deployedSha string, check chan deployme
 
 func parseFlags() {
 	flag.StringVar(&gitsha, "gitsha", "", "The gitsha of the version to be deployed")
-	flag.StringVar(&migrationCmd, "migrate", "", "Launch a one-off migration task along with the service update")
 	flag.StringVar(&configPath, "path", "", "The path to a gehen.yml config file")
 
 	flag.Parse()
@@ -150,6 +142,10 @@ func main() {
 	if err != nil {
 		fatal.Exit("SENTRY_DSN is not set")
 	}
+	statsd, err := statsd.New(os.Getenv("DD_AGENT_HOST"))
+	if err != nil {
+		log.Fatal("Could not create StatsD agent (DD_AGENT_HOST may not be set)")
+	}
 	parseFlags()
 
 	var services config.ServiceMap
@@ -164,18 +160,13 @@ func main() {
 			fatal.Exit("gehen.yml must contain at least one service")
 		}
 	} else {
-		services = config.ServiceMap{
-			service: {
-				Cluster: cluster,
-				URL:     versionURL,
-			},
-		}
+		fatal.Exit("Error: No config path set")
 	}
 
 	status := make(chan error)
 	for name, s := range services {
 		go func(serviceName, serviceCluster string) {
-			status <- awsecs.Deploy(migrationCmd, serviceName, serviceCluster, gitsha)
+			status <- awsecs.Deploy(serviceName, serviceCluster, gitsha, statsd, services)
 		}(name, s.Cluster)
 	}
 
@@ -199,9 +190,24 @@ func main() {
 				log.Printf("Version %s failed deployment to %s\n", gitsha, dep.name)
 				os.Exit(1)
 			}
-			log.Printf("Version %s successfully deployed to %s\n", gitsha, dep.name)
+			log.Printf("Traffic showing version %s on %s, waiting for old tasks to drain...\n", gitsha, dep.name)
 		case <-time.After(timeoutMins * time.Minute):
 			log.Println("Timed out while checking for deployed version of services")
+			os.Exit(1)
+		}
+	}
+
+	drained := make(chan string)
+	for name, s := range services {
+		go awsecs.CheckDrain(name, s.Cluster, drained, statsd, services)
+	}
+
+	for finished := 0; finished < len(services); finished++ {
+		select {
+		case name := <-drained:
+			log.Printf("Version %s successfully deployed to %s\n", gitsha, name)
+		case <-time.After(timeoutMins * time.Minute):
+			log.Println("Timed out while waiting for service to drain (old tasks are still running, go check datadog logs")
 			os.Exit(1)
 		}
 	}
