@@ -56,7 +56,6 @@ func Deploy(service, cluster, gitsha string, statsdClient *statsd.Client, servic
 
 	// Convert API output to be ready to update task.
 	newTask := taskOutToIn(*taskData)
-	var dockerTags map[string]*string
 
 	// Update each container in task def to use same repo with new tag/sha
 	for i, container := range newTask.ContainerDefinitions {
@@ -66,7 +65,7 @@ func Deploy(service, cluster, gitsha string, statsdClient *statsd.Client, servic
 		*newTask.ContainerDefinitions[i].Image = newImage
 	}
 
-	dockerTags = newTask.ContainerDefinitions[0].DockerLabels
+	dockerTags := newTask.ContainerDefinitions[0].DockerLabels
 	var tags []string
 	for tag, value := range dockerTags {
 		newTag := tag + ":" + *value
