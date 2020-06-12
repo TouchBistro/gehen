@@ -166,7 +166,7 @@ func main() {
 	status := make(chan error)
 	for name, s := range services {
 		go func(serviceName, serviceCluster string) {
-			status <- awsecs.Deploy(serviceName, serviceCluster, gitsha, statsd)
+			status <- awsecs.Deploy(serviceName, serviceCluster, gitsha, statsd, services)
 		}(name, s.Cluster)
 	}
 
@@ -199,7 +199,7 @@ func main() {
 
 	drained := make(chan string)
 	for name, s := range services {
-		go awsecs.CheckDrain(name, s.Cluster, drained, statsd)
+		go awsecs.CheckDrain(name, s.Cluster, drained, statsd, services)
 	}
 
 	for finished := 0; finished < len(services); finished++ {

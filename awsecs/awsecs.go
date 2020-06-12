@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/DataDog/datadog-go/statsd"
+	"github.com/TouchBistro/gehen/config"
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/arn"
 	"github.com/aws/aws-sdk-go/aws/session"
@@ -16,7 +17,7 @@ import (
 
 const CheckIntervalSecs = 15 // check interval in seconds
 
-func Deploy(service, cluster, gitsha string, statsdClient *statsd.Client) error {
+func Deploy(service, cluster, gitsha string, statsdClient *statsd.Client, services config.ServiceMap) error {
 	// Ensure we've been passed a valid cluster ARN and exit if not
 	clusterArn, err := arn.Parse(cluster)
 	if err != nil {
@@ -90,13 +91,15 @@ func Deploy(service, cluster, gitsha string, statsdClient *statsd.Client) error 
 	if err != nil {
 		return errors.Wrap(err, "cannot update new task definition: ")
 	}
+	newData := services[service]
+	newData.TaskDefinition = *newTaskArn
+	newData.Tags = tags
+	services[service] = newData
 	event := &statsd.Event{
 		// Title of the event.  Required.
-		Title: "Gehen Deploy Started",
+		Title: "gehen.deploys.started",
 		// Text is the description of the event.  Required.
 		Text: "Gehen started a deploy for service " + service,
-		// AggregationKey groups this event with others of the same key.
-		AggregationKey: *newTaskArn,
 		// Tags for the event.
 		Tags: tags,
 	}
@@ -108,7 +111,7 @@ func Deploy(service, cluster, gitsha string, statsdClient *statsd.Client) error 
 	return nil
 }
 
-func CheckDrain(service, cluster string, drained chan string, statsdClient *statsd.Client) {
+func CheckDrain(service, cluster string, drained chan string, statsdClient *statsd.Client, services config.ServiceMap) {
 	// Connect to ECS API
 	sess := session.Must(session.NewSession(&aws.Config{
 		Region: aws.String("us-east-1"),
@@ -131,41 +134,25 @@ func CheckDrain(service, cluster string, drained chan string, statsdClient *stat
 			log.Printf("Error: %+v", err) // TODO: Remove if this is too noisy
 			continue
 		}
-		if *serviceData.Services[0].RunningCount == *serviceData.Services[0].DesiredCount {
-			// Use resolved service info to grab existing task def
-			taskInput := &ecs.DescribeTaskDefinitionInput{
-				TaskDefinition: serviceData.Services[0].TaskDefinition,
-			}
-			taskData, err := svc.DescribeTaskDefinition(taskInput)
-			if err != nil {
-				log.Printf("Could not get service %s\n", service)
-				log.Printf("Error: %+v", err) // TODO: Remove if this is too noisy
-				continue
-			}
-			dockerTags := taskData.TaskDefinition.ContainerDefinitions[0].DockerLabels
-			var tags []string
-			for tag, value := range dockerTags {
-				newTag := tag + ":" + *value
-				tags = append(tags, newTag)
-			}
-			event := &statsd.Event{
-				// Title of the event.  Required.
-				Title: "Gehen Deploy Success",
-				// Text is the description of the event.  Required.
-				Text: "Gehen successfully deployed " + service,
-				// AggregationKey groups this event with others of the same key.
-				AggregationKey: *serviceData.Services[0].TaskDefinition,
-				// Tags for the event.
-				Tags: tags,
-			}
+		for _, deployment := range serviceData.Services[0].Deployments {
+			if (*deployment.TaskDefinition == services[service].TaskDefinition) && (*deployment.Status == "PRIMARY") && (*deployment.RunningCount == *deployment.DesiredCount) {
+				event := &statsd.Event{
+					// Title of the event.  Required.
+					Title: "gehen.deploys.completed",
+					// Text is the description of the event.  Required.
+					Text: "Gehen successfully deployed " + service,
+					// Tags for the event.
+					Tags: services[service].Tags,
+				}
 
-			err = statsdClient.Event(event)
-			if err != nil {
-				log.Printf("Could not get service %s\n", service)
-				log.Printf("Error: %+v", err) // TODO: Remove if this is too noisy
-				continue
+				err = statsdClient.Event(event)
+				if err != nil {
+					log.Printf("Could not get service %s\n", service)
+					log.Printf("Error: %+v", err) // TODO: Remove if this is too noisy
+					continue
+				}
+				drained <- service
 			}
-			drained <- service
 		}
 	}
 }
