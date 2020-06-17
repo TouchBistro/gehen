@@ -198,14 +198,17 @@ func main() {
 	}
 
 	drained := make(chan string)
+	errs := make(chan error)
 	for name, s := range services {
-		go awsecs.CheckDrain(name, s.Cluster, drained, statsd, services)
+		go awsecs.CheckDrain(name, s.Cluster, drained, errs, statsd, services)
 	}
 
 	for finished := 0; finished < len(services); finished++ {
 		select {
 		case name := <-drained:
 			log.Printf("Version %s successfully deployed to %s\n", gitsha, name)
+		case err := <-errs:
+			sentry.CaptureException(err)
 		case <-time.After(timeoutMins * time.Minute):
 			log.Println("Timed out while waiting for service to drain (old tasks are still running, go check datadog logs")
 			os.Exit(1)

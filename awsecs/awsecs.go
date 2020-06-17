@@ -12,7 +12,6 @@ import (
 	"github.com/aws/aws-sdk-go/aws/arn"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/ecs"
-	"github.com/getsentry/sentry-go"
 	"github.com/pkg/errors"
 )
 
@@ -111,7 +110,7 @@ func Deploy(service, cluster, gitsha string, statsdClient *statsd.Client, servic
 	return nil
 }
 
-func CheckDrain(service, cluster string, drained chan string, statsdClient *statsd.Client, services config.ServiceMap) {
+func CheckDrain(service, cluster string, drained chan string, errs chan error, statsdClient *statsd.Client, services config.ServiceMap) {
 	// Connect to ECS API
 	sess := session.Must(session.NewSession(&aws.Config{
 		Region: aws.String("us-east-1"),
@@ -147,9 +146,7 @@ func CheckDrain(service, cluster string, drained chan string, statsdClient *stat
 
 				err = statsdClient.Event(event)
 				if err != nil {
-					log.Printf("Could not send statsd event for %s\n", service)
-					log.Printf("Error: %+v", err) // TODO: Remove if this is too noisy
-					sentry.CaptureException(err)
+					errs <- err
 					continue
 				}
 				drained <- service
