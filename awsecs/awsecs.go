@@ -12,6 +12,7 @@ import (
 	"github.com/aws/aws-sdk-go/aws/arn"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/ecs"
+	"github.com/getsentry/sentry-go"
 	"github.com/pkg/errors"
 )
 
@@ -146,8 +147,9 @@ func CheckDrain(service, cluster string, drained chan string, statsdClient *stat
 
 				err = statsdClient.Event(event)
 				if err != nil {
-					log.Printf("Could not get service %s\n", service)
+					log.Printf("Could not send statsd event for %s\n", service)
 					log.Printf("Error: %+v", err) // TODO: Remove if this is too noisy
+					sentry.CaptureException(err)
 					continue
 				}
 				drained <- service
