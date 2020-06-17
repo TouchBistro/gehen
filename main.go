@@ -208,6 +208,7 @@ func main() {
 		case name := <-drained:
 			log.Printf("Version %s successfully deployed to %s\n", gitsha, name)
 		case err := <-errs:
+			log.Printf("Version %s successfully deployed but statsd event didnt send\n", gitsha)
 			sentry.CaptureException(err)
 		case <-time.After(timeoutMins * time.Minute):
 			log.Println("Timed out while waiting for service to drain (old tasks are still running, go check datadog logs")

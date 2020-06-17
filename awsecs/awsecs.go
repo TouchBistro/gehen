@@ -147,9 +147,10 @@ func CheckDrain(service, cluster string, drained chan string, errs chan error, s
 				err = statsdClient.Event(event)
 				if err != nil {
 					errs <- err
-					continue
+					return
 				}
 				drained <- service
+				return
 			}
 		}
 	}
