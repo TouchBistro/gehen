@@ -110,7 +110,7 @@ func Deploy(service, cluster, gitsha string, statsdClient *statsd.Client, servic
 	return nil
 }
 
-func CheckDrain(service, cluster string, drained chan string, statsdClient *statsd.Client, services config.ServiceMap) {
+func CheckDrain(service, cluster string, drained chan string, errs chan error, statsdClient *statsd.Client, services config.ServiceMap) {
 	// Connect to ECS API
 	sess := session.Must(session.NewSession(&aws.Config{
 		Region: aws.String("us-east-1"),
@@ -146,11 +146,11 @@ func CheckDrain(service, cluster string, drained chan string, statsdClient *stat
 
 				err = statsdClient.Event(event)
 				if err != nil {
-					log.Printf("Could not get service %s\n", service)
-					log.Printf("Error: %+v", err) // TODO: Remove if this is too noisy
-					continue
+					errs <- err
+					return
 				}
 				drained <- service
+				return
 			}
 		}
 	}
