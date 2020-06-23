@@ -124,6 +124,20 @@ func CheckDrain(service, cluster string, drained chan string, errs chan error, s
 		Cluster: &cluster,
 	}
 
+	drainEvent := &statsd.Event{
+		// Title of the event.  Required.
+		Title: "gehen.deploys.draining",
+		// Text is the description of the event.  Required.
+		Text: "Gehen is checking for service drain on " + service,
+		// Tags for the event.
+		Tags: services[service].Tags,
+	}
+	err = statsdClient.Event(event)
+	if err != nil {
+		errs <- err
+		return
+	}
+
 	for {
 		time.Sleep(CheckIntervalSecs * time.Second)
 		log.Printf("Checking task count on: %s\n", service)
@@ -135,7 +149,7 @@ func CheckDrain(service, cluster string, drained chan string, errs chan error, s
 		}
 		for _, deployment := range serviceData.Services[0].Deployments {
 			if (*deployment.TaskDefinition == services[service].TaskDefinition) && (*deployment.Status == "PRIMARY") && (*deployment.RunningCount == *deployment.DesiredCount) {
-				event := &statsd.Event{
+				doneEvent := &statsd.Event{
 					// Title of the event.  Required.
 					Title: "gehen.deploys.completed",
 					// Text is the description of the event.  Required.
