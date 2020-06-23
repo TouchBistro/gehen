@@ -132,7 +132,7 @@ func CheckDrain(service, cluster string, drained chan string, errs chan error, s
 		// Tags for the event.
 		Tags: services[service].Tags,
 	}
-	err = statsdClient.Event(event)
+	err = statsdClient.Event(drainEvent)
 	if err != nil {
 		errs <- err
 		return
@@ -158,7 +158,7 @@ func CheckDrain(service, cluster string, drained chan string, errs chan error, s
 					Tags: services[service].Tags,
 				}
 
-				err = statsdClient.Event(event)
+				err = statsdClient.Event(doneEvent)
 				if err != nil {
 					errs <- err
 					return
