@@ -213,7 +213,7 @@ func main() {
 				// Text is the description of the event.  Required.
 				Text: "Gehen finished deploying " + name,
 			}
-			err = statsdt.Event(doneEvent)
+			err = statsd.Event(doneEvent)
 			if err != nil {
 				sentry.CaptureException(err)
 			}
