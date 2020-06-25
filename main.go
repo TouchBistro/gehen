@@ -142,7 +142,7 @@ func main() {
 	if err != nil {
 		fatal.Exit("SENTRY_DSN is not set")
 	}
-	statsd, err := statsd.New(os.Getenv("DD_AGENT_HOST"))
+	statsdC, err := statsd.New(os.Getenv("DD_AGENT_HOST"))
 	if err != nil {
 		log.Fatal("Could not create StatsD agent (DD_AGENT_HOST may not be set)")
 	}
@@ -166,7 +166,7 @@ func main() {
 	status := make(chan error)
 	for name, s := range services {
 		go func(serviceName, serviceCluster string) {
-			status <- awsecs.Deploy(serviceName, serviceCluster, gitsha, statsd, services)
+			status <- awsecs.Deploy(serviceName, serviceCluster, gitsha, statsdC, services)
 		}(name, s.Cluster)
 	}
 
@@ -200,7 +200,7 @@ func main() {
 	drained := make(chan string)
 	errs := make(chan error)
 	for name, s := range services {
-		go awsecs.CheckDrain(name, s.Cluster, drained, errs, statsd, services)
+		go awsecs.CheckDrain(name, s.Cluster, drained, errs, statsdC, services)
 	}
 
 	for finished := 0; finished < len(services); finished++ {
@@ -213,7 +213,7 @@ func main() {
 				// Text is the description of the event.  Required.
 				Text: "Gehen finished deploying " + name,
 			}
-			err = statsd.Event(doneEvent)
+			err := statsdC.Event(doneEvent)
 			if err != nil {
 				sentry.CaptureException(err)
 			}
