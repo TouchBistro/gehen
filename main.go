@@ -207,6 +207,16 @@ func main() {
 		select {
 		case name := <-drained:
 			log.Printf("Version %s successfully deployed to %s\n", gitsha, name)
+			doneEvent := &statsd.Event{
+				// Title of the event.  Required.
+				Title: "gehen.deploys.success",
+				// Text is the description of the event.  Required.
+				Text: "Gehen finished deploying " + name,
+			}
+			err = statsdt.Event(doneEvent)
+			if err != nil {
+				sentry.CaptureException(err)
+			}
 		case err := <-errs:
 			log.Printf("Version %s successfully deployed but statsd event didnt send\n", gitsha)
 			sentry.CaptureException(err)
