@@ -225,5 +225,6 @@ func main() {
 			os.Exit(1)
 		}
 	}
+	log.Printf("Finished deploying all services")
 	os.Exit(0)
 }
