@@ -143,9 +143,11 @@ func main() {
 		fatal.Exit("SENTRY_DSN is not set")
 	}
 	statsdClient, err := statsd.New(os.Getenv("DD_AGENT_HOST"))
+	
 	if err != nil {
 		log.Fatal("Could not create StatsD agent (DD_AGENT_HOST may not be set)")
 	}
+	defer statsdClient.Flush()
 	parseFlags()
 
 	var services config.ServiceMap
@@ -226,5 +228,4 @@ func main() {
 		}
 	}
 	log.Printf("Finished deploying all services")
-	os.Exit(0)
 }
