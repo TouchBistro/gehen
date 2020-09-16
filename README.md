@@ -22,5 +22,4 @@ services: # A map of services
   <service-name>: # The name of the ECS service
     cluster: string # The ECS cluster the service is in
     url: string # The URL to use to check that the new version has been deployed
-    testUrl: string # A URL to perform a smoke test against the service (optional)
 ```

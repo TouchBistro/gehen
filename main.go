@@ -2,7 +2,6 @@ package main
 
 import (
 	"flag"
-	"fmt"
 	"io/ioutil"
 	"log"
 	"net/http"
@@ -63,36 +62,7 @@ func fetchRevisionSha(url string) (string, error) {
 	return string(bodySha), nil
 }
 
-func checkLifeAlert(url string) error {
-	client := &http.Client{}
-	req, err := http.NewRequest("GET", url, nil)
-	if err != nil {
-		return errors.Errorf("Failed to build HTTP request for %s", url)
-	}
-
-	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", os.Getenv("CHECKER_BEARER_TOKEN")))
-	resp, err := client.Do(req)
-	if resp != nil {
-		defer resp.Body.Close()
-	}
-
-	if err != nil {
-		return errors.Errorf("Failed to HTTP GET %s", url)
-	}
-
-	body, err := ioutil.ReadAll(resp.Body)
-	if err != nil {
-		return errors.Errorf("Could not parse body from %s", url)
-	}
-
-	if resp.StatusCode != 200 {
-		return errors.Errorf("Error HTTP Status %d returned from Life Alert check with error %s", resp.StatusCode, string(body))
-	}
-
-	return nil
-}
-
-func checkDeployment(name, url, testUrl, deployedSha string, check chan deployment) {
+func checkDeployment(name, url, deployedSha string, check chan deployment) {
 	log.Printf("Checking %s for newly deployed version\n", url)
 
 	for {
@@ -108,15 +78,6 @@ func checkDeployment(name, url, testUrl, deployedSha string, check chan deployme
 		log.Printf("Got %s from %s\n", fetchedSha, url)
 		if len(fetchedSha) > 7 && strings.HasPrefix(deployedSha, fetchedSha) {
 			dep := deployment{name: name}
-
-			if testUrl != "" {
-				log.Printf("Checking %s for life-alert test suite\n", testUrl)
-				err := checkLifeAlert(testUrl)
-				if err != nil {
-					log.Printf("Help! I've fallen and I can't get up!: %+v", err) // TODO: Remove if this is too noisy
-					dep.err = err
-				}
-			}
 			check <- dep
 			return
 		}
@@ -143,7 +104,7 @@ func main() {
 		fatal.Exit("SENTRY_DSN is not set")
 	}
 	statsdClient, err := statsd.New(os.Getenv("DD_AGENT_HOST"))
-	
+
 	if err != nil {
 		log.Fatal("Could not create StatsD agent (DD_AGENT_HOST may not be set)")
 	}
@@ -182,7 +143,7 @@ func main() {
 
 	check := make(chan deployment)
 	for name, s := range services {
-		go checkDeployment(name, s.URL, s.TestURL, gitsha, check)
+		go checkDeployment(name, s.URL, gitsha, check)
 	}
 
 	for finished := 0; finished < len(services); finished++ {
