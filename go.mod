@@ -1,6 +1,6 @@
 module github.com/TouchBistro/gehen
 
-go 1.12
+go 1.14
 
 require (
 	github.com/DataDog/datadog-go v3.7.1+incompatible
