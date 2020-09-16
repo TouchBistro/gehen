@@ -1,33 +1,37 @@
-version: 2
+version: 2.1
+
+cache_key: &cache_key gehen-20200916-{{ checksum "go.sum" }}
 
 jobs:
-  lint-build:
+  lint-build-test:
     docker:
-      - image: circleci/golang:1.12
-    working_directory: ~/gehen
+      - image: cimg/go:1.14
     steps:
       - checkout
       - restore_cache:
           name: Restore dependency cache
           keys:
-            - gehen-deps-{{ checksum "go.sum" }}
+            - *cache_key
       - run:
           name: Install dependencies
           command: make setup
       - save_cache:
           name: Cache dependencies
-          key: gehen-deps-{{ checksum "go.sum" }}
+          key: *cache_key
           paths:
-            - /go/pkg
+            - ~/go/pkg
+            - bin/golangci-lint
       - run:
           name: Run linter
           command: make lint
       - run:
           name: Build gehen
           command: make build
+      - run:
+          name: Run tests
+          command: make test-ci
 
 workflows:
-  version: 2
-  lint-build:
+  lint-build-test:
     jobs:
-      - lint-build
+      - lint-build-test

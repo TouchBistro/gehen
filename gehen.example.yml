@@ -1,13 +1,7 @@
 services:
   example-production:
-    cluster: arn:aws:ecs:us-east-1:651264383976:cluster/TouchBistro-Production-Public-Cluster
+    cluster: arn:aws:ecs:us-east-1:123456:cluster/prod-cluster
     url: https://example.touchbistro.io/ping
-    testUrl: https://develop.infrastructure.api.touchbistro.io/checker/example-touchbistro
-  example-develop:
-    cluster: arn:aws:ecs:us-east-1:651264383976:cluster/TouchBistro-Nonprod-Public-Cluster
-    url: https://example.touchbistro.io/ping
-    testUrl: https://develop.infrastructure.api.touchbistro.io/checker/example-touchbistro
   example-staging:
-    cluster: arn:aws:ecs:us-east-1:651264383976:cluster/TouchBistro-Nonprod-Public-Cluster
+    cluster: arn:aws:ecs:us-east-1:12345:cluster/non-prod-cluster
     url: https://example.touchbistro.io/ping
-    testUrl: https://develop.infrastructure.api.touchbistro.io/checker/example-touchbistro

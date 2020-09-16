@@ -11,7 +11,6 @@ import (
 type Service struct {
 	Cluster        string   `yaml:"cluster"`
 	URL            string   `yaml:"url"`
-	TestURL        string   `yaml:"testUrl"`
 	TaskDefinition string   `yaml:"-"`
 	Tags           []string `yaml:"-"`
 }

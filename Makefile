@@ -2,14 +2,25 @@
 
 # Get all dependencies
 setup:
+# Only install if missing
+ifeq (,$(wildcard bin/golangci-lint))
 	curl -sfL https://install.goreleaser.com/github.com/golangci/golangci-lint.sh | sh
+endif
+
 	go mod download
 .PHONY: setup
 
-# Build tb
+# Build gehen
 build:
 	go build
 .PHONY: build
+
+# Clean all build artifacts
+clean:
+	rm -rf dist
+	rm -rf coverage
+	rm -f gehen
+.PHONY: clean
 
 # Run the linter
 lint:
@@ -20,3 +31,17 @@ lint:
 go-uninstall:
 	rm $(shell go env GOPATH)/bin/gehen
 .PHONY: go-uninstall
+
+# Run tests and collect coverage data
+test:
+	mkdir -p coverage
+	go test -coverprofile=coverage/coverage.txt ./...
+	go tool cover -html=coverage/coverage.txt -o coverage/coverage.html
+.PHONY: test
+
+# Run tests and print coverage data to stdout
+test-ci:
+	mkdir -p coverage
+	go test -coverprofile=coverage/coverage.txt ./...
+	go tool cover -func=coverage/coverage.txt
+.PHONY: test-ci
