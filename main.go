@@ -2,89 +2,62 @@ package main
 
 import (
 	"flag"
-	"io/ioutil"
+	"fmt"
 	"log"
-	"net/http"
 	"os"
-	"strings"
-	"time"
 
 	"github.com/DataDog/datadog-go/statsd"
-	"github.com/TouchBistro/gehen/awsecs"
 	"github.com/TouchBistro/gehen/config"
+	"github.com/TouchBistro/gehen/deploy"
 	"github.com/TouchBistro/goutils/fatal"
+	"github.com/aws/aws-sdk-go/aws"
+	"github.com/aws/aws-sdk-go/aws/session"
+	"github.com/aws/aws-sdk-go/service/ecs"
 	"github.com/getsentry/sentry-go"
 	"github.com/pkg/errors"
 )
 
-const timeoutMins = 5 // deployment check timeout in minutes
-
-type deployment struct {
-	name string
-	err  error
-}
-
+// Flag values
 var (
 	gitsha     string
 	configPath string
 )
 
-func fetchRevisionSha(url string) (string, error) {
-	resp, err := http.Get(url)
-	if resp != nil {
-		defer resp.Body.Close()
+var (
+	useSentry    = false
+	statsdClient *statsd.Client
+)
+
+func sendStatsdEvents(services []config.Service, eventTitle, eventText string) {
+	if statsdClient == nil {
+		return
 	}
 
-	if err != nil {
-		return "", errors.Errorf("Failed to HTTP GET %s", url)
-	}
-
-	// Check status
-	if resp.StatusCode != 200 {
-		return "", errors.Errorf("Received non 200 status from %s", url)
-	}
-
-	// Check if revision sha is in the http Server header.
-	if header := resp.Header.Get("Server"); header != "" {
-		// TODO: use a regular expression
-		t := strings.Split(header, "-")
-		if len(t) > 1 {
-			return t[len(t)-1], nil
+	for _, s := range services {
+		event := &statsd.Event{
+			// Title of the event.  Required.
+			Title: eventText,
+			// Text is the description of the event.  Required.
+			Text: fmt.Sprintf(eventText, s.Name),
+			// Tags for the event.
+			Tags: s.Tags,
 		}
-	}
 
-	// Check if revision sha is in the body
-	bodySha, err := ioutil.ReadAll(resp.Body)
-	if err != nil {
-		return "", errors.Errorf("Failed to parse body from %s", url)
-	}
-
-	return string(bodySha), nil
-}
-
-func checkDeployment(name, url, deployedSha string, check chan deployment) {
-	log.Printf("Checking %s for newly deployed version\n", url)
-
-	for {
-		time.Sleep(awsecs.CheckIntervalSecs * time.Second)
-
-		fetchedSha, err := fetchRevisionSha(url)
+		err := statsdClient.Event(event)
 		if err != nil {
-			log.Printf("Could not parse a gitsha version from header or body at %s\n", url)
-			log.Printf("Error: %+v", err) // TODO: Remove if this is too noisy
-			continue
-		}
-
-		log.Printf("Got %s from %s\n", fetchedSha, url)
-		if len(fetchedSha) > 7 && strings.HasPrefix(deployedSha, fetchedSha) {
-			dep := deployment{name: name}
-			check <- dep
-			return
+			err = errors.Wrap(err, "cannot send statsd event")
+			if useSentry {
+				sentry.CaptureException(err)
+			}
 		}
 	}
 }
 
-func parseFlags() {
+func main() {
+	// Don't show stack traces because it's too noisy. Stack traces will be captured in Sentry
+	fatal.ShowStackTraces = false
+
+	// Handle flags
 	flag.StringVar(&gitsha, "gitsha", "", "The gitsha of the version to be deployed")
 	flag.StringVar(&configPath, "path", "", "The path to a gehen.yml config file")
 
@@ -96,97 +69,128 @@ func parseFlags() {
 	} else if configPath == "" {
 		fatal.Exit("Must provide the path to a gehen.yml file")
 	}
-}
 
-func main() {
-	err := sentry.Init(sentry.ClientOptions{Dsn: os.Getenv("SENTRY_DSN")})
-	if err != nil {
-		fatal.Exit("SENTRY_DSN is not set")
-	}
-	statsdClient, err := statsd.New(os.Getenv("DD_AGENT_HOST"))
+	// Initialize observability libraries
+	// Sentry for error tracking, Datadog StatsD for metrics
 
-	if err != nil {
-		log.Fatal("Could not create StatsD agent (DD_AGENT_HOST may not be set)")
-	}
-	defer statsdClient.Flush()
-	parseFlags()
-
-	var services config.ServiceMap
-	if configPath != "" {
-		err = config.Init(configPath)
+	if sentryDSN, ok := os.LookupEnv("SENTRY_DSN"); ok {
+		err := sentry.Init(sentry.ClientOptions{Dsn: sentryDSN})
 		if err != nil {
-			fatal.ExitErr(err, "Failed reading config file.")
+			fatal.ExitErr(err, "Failed to initialize Sentry SDK.")
 		}
-
-		services = config.Config().Services
-		if len(services) == 0 {
-			fatal.Exit("gehen.yml must contain at least one service")
-		}
-	} else {
-		fatal.Exit("Error: No config path set")
 	}
 
-	status := make(chan error)
-	for name, s := range services {
-		go func(serviceName, serviceCluster string) {
-			status <- awsecs.Deploy(serviceName, serviceCluster, gitsha, statsdClient, services)
-		}(name, s.Cluster)
-	}
-
-	for i := 0; i < len(services); i++ {
-		err := <-status
+	if ddAgentHost, ok := os.LookupEnv("DD_AGENT_HOST"); ok {
+		client, err := statsd.New(ddAgentHost)
 		if err != nil {
-			sentry.CaptureException(err)
-			fatal.ExitErr(err, "Failed deploying to AWS.")
+			fatal.ExitErr(err, "Could not create StatsD agent (DD_AGENT_HOST may not be set)")
+		}
+
+		statsdClient = client
+		defer statsdClient.Flush()
+	}
+
+	// gehen config, get and validate services
+
+	services, err := config.ReadServices(configPath, gitsha)
+	if err != nil {
+		fatal.ExitErr(err, "Failed to get services from config file")
+	}
+
+	if len(services) == 0 {
+		fatal.Exit("gehen.yml must contain at least one service")
+	}
+
+	// Connect to ECS API
+	sess := session.Must(session.NewSession(&aws.Config{
+		Region: aws.String("us-east-1"),
+	}))
+	ecsClient := ecs.New(sess)
+
+	// DEPLOYMENT ZONE //
+
+	deployResults := deploy.Deploy(services, ecsClient)
+	// TODO(@cszatmary) implement rollbacks
+	// will do this in the next PR, for now keep the behaviour the same as before
+	deployFailed := false
+
+	for _, result := range deployResults {
+		if result.Err == nil {
+			continue
+		}
+
+		deployFailed = true
+		log.Printf("Failed to deploy %s", result.Service.Name)
+		log.Printf("Error: %v", result.Err)
+
+		if useSentry {
+			sentry.CaptureException(result.Err)
 		}
 	}
 
-	check := make(chan deployment)
-	for name, s := range services {
-		go checkDeployment(name, s.URL, gitsha, check)
+	if deployFailed {
+		fatal.Exit("Failed deploying to AWS")
 	}
 
-	for finished := 0; finished < len(services); finished++ {
-		select {
-		case dep := <-check:
-			if dep.err != nil {
-				log.Printf("Version %s failed deployment to %s\n", gitsha, dep.name)
-				os.Exit(1)
-			}
-			log.Printf("Traffic showing version %s on %s, waiting for old tasks to drain...\n", gitsha, dep.name)
-		case <-time.After(timeoutMins * time.Minute):
-			log.Println("Timed out while checking for deployed version of services")
-			os.Exit(1)
+	sendStatsdEvents(services, "gehen.deploys.started", "Gehen started a deploy for service %s")
+
+	checkDeployedResults := deploy.CheckDeployed(services)
+	checkDeployedFailed := false
+
+	for _, result := range checkDeployedResults {
+		if result.Err == nil {
+			continue
 		}
-	}
 
-	drained := make(chan string)
-	errs := make(chan error)
-	for name, s := range services {
-		go awsecs.CheckDrain(name, s.Cluster, drained, errs, statsdClient, services)
-	}
+		checkDeployedFailed = true
 
-	for finished := 0; finished < len(services); finished++ {
-		select {
-		case name := <-drained:
-			log.Printf("Version %s successfully deployed to %s\n", gitsha, name)
-			doneEvent := &statsd.Event{
-				// Title of the event.  Required.
-				Title: "gehen.deploys.success",
-				// Text is the description of the event.  Required.
-				Text: "Gehen finished deploying " + name,
-			}
-			err := statsdClient.Event(doneEvent)
-			if err != nil {
-				sentry.CaptureException(err)
-			}
-		case err := <-errs:
-			log.Printf("Version %s successfully deployed but statsd event didnt send\n", gitsha)
-			sentry.CaptureException(err)
-		case <-time.After(timeoutMins * time.Minute):
-			log.Println("Timed out while waiting for service to drain (old tasks are still running, go check datadog logs")
-			os.Exit(1)
+		if errors.Is(result.Err, deploy.ErrTimedOut) {
+			log.Printf("Timed out while checking for deployed version of %s", result.Service.Name)
+		} else {
+			log.Printf("Failed to check for deployed version of %s", result.Service.Name)
+			log.Printf("Error: %v", result.Err)
 		}
+
+		if useSentry {
+			sentry.CaptureException(result.Err)
+		}
+
 	}
+
+	if checkDeployedFailed {
+		fatal.Exit("Failed to check for new versions of services")
+	}
+
+	sendStatsdEvents(services, "gehen.deploys.draining", "Gehen is checking for service drain on %s")
+
+	checkDrainedResults := deploy.CheckDrained(services, ecsClient)
+	checkDrainedFailed := false
+
+	for _, result := range checkDrainedResults {
+		if result.Err == nil {
+			continue
+		}
+
+		checkDrainedFailed = true
+
+		if errors.Is(result.Err, deploy.ErrTimedOut) {
+			log.Printf("Timed out while waiting for %s to drain (old tasks are still running, go check datadog logs", result.Service.Name)
+		} else {
+			log.Printf("Failed to check if %s drained", result.Service.Name)
+			log.Printf("Error: %v", result.Err)
+		}
+
+		if useSentry {
+			sentry.CaptureException(result.Err)
+		}
+
+	}
+
+	if checkDrainedFailed {
+		fatal.Exit("Failed to check if services have drained")
+	}
+
+	sendStatsdEvents(services, "gehen.deploys.completed", "Gehen successfully deployed %s")
+
 	log.Printf("Finished deploying all services")
 }
