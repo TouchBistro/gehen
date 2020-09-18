@@ -78,6 +78,7 @@ func main() {
 		if err != nil {
 			fatal.ExitErr(err, "Failed to initialize Sentry SDK.")
 		}
+		useSentry = true
 	}
 
 	if ddAgentHost, ok := os.LookupEnv("DD_AGENT_HOST"); ok {
