@@ -146,10 +146,11 @@ func main() {
 
 		if errors.Is(result.Err, deploy.ErrTimedOut) {
 			log.Printf("Timed out while checking for deployed version of %s", result.Service.Name)
-		} else {
-			log.Printf("Failed to check for deployed version of %s", result.Service.Name)
-			log.Printf("Error: %v", result.Err)
+			continue
 		}
+
+		log.Printf("Failed to check for deployed version of %s", result.Service.Name)
+		log.Printf("Error: %v", result.Err)
 
 		if useSentry {
 			sentry.CaptureException(result.Err)
@@ -175,10 +176,11 @@ func main() {
 
 		if errors.Is(result.Err, deploy.ErrTimedOut) {
 			log.Printf("Timed out while waiting for %s to drain (old tasks are still running, go check datadog logs", result.Service.Name)
-		} else {
-			log.Printf("Failed to check if %s drained", result.Service.Name)
-			log.Printf("Error: %v", result.Err)
+			continue
 		}
+
+		log.Printf("Failed to check if %s drained", result.Service.Name)
+		log.Printf("Error: %v", result.Err)
 
 		if useSentry {
 			sentry.CaptureException(result.Err)
