@@ -1,7 +1,7 @@
 services:
-  example-production:
+  - name: example-production
     cluster: arn:aws:ecs:us-east-1:123456:cluster/prod-cluster
     url: https://example.touchbistro.io/ping
-  example-staging:
+  - name: example-staging
     cluster: arn:aws:ecs:us-east-1:123456:cluster/non-prod-cluster
     url: https://example.touchbistro.io/ping

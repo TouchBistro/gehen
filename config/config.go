@@ -8,36 +8,58 @@ import (
 	"gopkg.in/yaml.v2"
 )
 
+type serviceConfig struct {
+	Cluster string `yaml:"cluster"`
+	URL     string `yaml:"url"`
+}
+
+type gehenConfig struct {
+	Services map[string]serviceConfig `yaml:"services"`
+}
+
+// Service represents a service that can be deployed by gehen.
 type Service struct {
-	Cluster        string   `yaml:"cluster"`
-	URL            string   `yaml:"url"`
-	TaskDefinition string   `yaml:"-"`
-	Tags           []string `yaml:"-"`
+	Name    string
+	Gitsha  string
+	Cluster string
+	URL     string
+	// The Git SHA of the previous deployment. Used by Gehen for rollback purposes.
+	// Please do not modify this value.
+	PreviousGitsha            string
+	PreviousTaskDefinitionARN string
+	TaskDefinitionARN         string
+	Tags                      []string
 }
 
-type ServiceMap = map[string]Service
-
-type GehenConfig struct {
-	Services ServiceMap `yaml:"services"`
-}
-
-var config GehenConfig
-
-func Init(path string) error {
-	if !file.FileOrDirExists(path) {
-		return errors.Errorf("No such file %s", path)
+// ReadServices reads the config file at the given path and returns
+// a slice of services.
+func ReadServices(configPath, gitsha string) ([]Service, error) {
+	if !file.FileOrDirExists(configPath) {
+		return nil, errors.Errorf("No such file %s", configPath)
 	}
 
-	file, err := os.Open(path)
+	file, err := os.Open(configPath)
 	if err != nil {
-		return errors.Wrapf(err, "failed to open file %s", path)
+		return nil, errors.Wrapf(err, "failed to open file %s", configPath)
 	}
 	defer file.Close()
 
+	var config gehenConfig
 	err = yaml.NewDecoder(file).Decode(&config)
-	return errors.Wrapf(err, "couldn't read yaml file at %s", path)
-}
+	if err != nil {
+		return nil, errors.Wrapf(err, "couldn't read yaml file at %s", configPath)
+	}
 
-func Config() *GehenConfig {
-	return &config
+	services := make([]Service, 0, len(config.Services))
+	for name, s := range config.Services {
+		service := Service{
+			Name:    name,
+			Gitsha:  gitsha,
+			Cluster: s.Cluster,
+			URL:     s.URL,
+		}
+		services = append(services, service)
+	}
+
+	return services, nil
 }
