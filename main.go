@@ -17,10 +17,14 @@ import (
 	"github.com/pkg/errors"
 )
 
+// Set by goreleaser at build time
+var version string
+
 // Flag values
 var (
-	gitsha     string
-	configPath string
+	versionFlag bool
+	gitsha      string
+	configPath  string
 )
 
 var (
@@ -142,10 +146,20 @@ func performRollback(services []*config.Service, ecsClient *ecs.ECS) {
 
 func main() {
 	// Handle flags
+	flag.BoolVar(&versionFlag, "version", false, "Prints the current gehen version")
 	flag.StringVar(&gitsha, "gitsha", "", "The gitsha of the version to be deployed")
 	flag.StringVar(&configPath, "path", "", "The path to a gehen.yml config file")
 
 	flag.Parse()
+
+	if versionFlag {
+		if version == "" {
+			version = "source"
+		}
+
+		fmt.Printf("gehen version %s\n", version)
+		os.Exit(0)
+	}
 
 	// gitsha and path are required
 	if gitsha == "" {
