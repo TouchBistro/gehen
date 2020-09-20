@@ -33,7 +33,7 @@ type Service struct {
 
 // ReadServices reads the config file at the given path and returns
 // a slice of services.
-func ReadServices(configPath, gitsha string) ([]Service, error) {
+func ReadServices(configPath, gitsha string) ([]*Service, error) {
 	if !file.FileOrDirExists(configPath) {
 		return nil, errors.Errorf("No such file %s", configPath)
 	}
@@ -50,7 +50,7 @@ func ReadServices(configPath, gitsha string) ([]Service, error) {
 		return nil, errors.Wrapf(err, "couldn't read yaml file at %s", configPath)
 	}
 
-	services := make([]Service, 0, len(config.Services))
+	services := make([]*Service, 0, len(config.Services))
 	for name, s := range config.Services {
 		service := Service{
 			Name:    name,
@@ -58,7 +58,7 @@ func ReadServices(configPath, gitsha string) ([]Service, error) {
 			Cluster: s.Cluster,
 			URL:     s.URL,
 		}
-		services = append(services, service)
+		services = append(services, &service)
 	}
 
 	return services, nil

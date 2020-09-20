@@ -99,19 +99,6 @@ func Deploy(service *config.Service, ecsClient ecsiface.ECSAPI) error {
 	newTaskArn := *respRegisterTaskDef.TaskDefinition.TaskDefinitionArn
 	log.Printf("Registered new task definition %s, updating service %s\n", newTaskArn, service.Name)
 
-	// Update the service to create a new deployment
-	serviceUpdateInput := &ecs.UpdateServiceInput{
-		TaskDefinition:     &newTaskArn,
-		Service:            &service.Name,
-		Cluster:            &service.Cluster,
-		ForceNewDeployment: aws.Bool(true),
-	}
-
-	_, err = ecsClient.UpdateService(serviceUpdateInput)
-	if err != nil {
-		return errors.Wrap(err, "cannot update new task definition: ")
-	}
-
 	// Set dynamic service values
 	// Save previous Git SHA in case we need to rollback later
 	service.PreviousGitsha = previousGitsha
@@ -119,14 +106,18 @@ func Deploy(service *config.Service, ecsClient ecsiface.ECSAPI) error {
 	service.TaskDefinitionARN = newTaskArn
 	service.Tags = tags
 
+	err = UpdateService(service, ecsClient)
+	if err != nil {
+		return errors.Wrap(err, "failed to update service")
+	}
+
 	return nil
 }
 
-// Rollback triggers a rollback of the service by updating the service to use the previous
-// task definition.
-func Rollback(service *config.Service, ecsClient ecsiface.ECSAPI) error {
+// UpdateService creates a new deployment on ECS.
+func UpdateService(service *config.Service, ecsClient ecsiface.ECSAPI) error {
 	serviceUpdateInput := &ecs.UpdateServiceInput{
-		TaskDefinition:     &service.PreviousTaskDefinitionARN,
+		TaskDefinition:     &service.TaskDefinitionARN,
 		Service:            &service.Name,
 		Cluster:            &service.Cluster,
 		ForceNewDeployment: aws.Bool(true),
@@ -134,7 +125,7 @@ func Rollback(service *config.Service, ecsClient ecsiface.ECSAPI) error {
 
 	_, err := ecsClient.UpdateService(serviceUpdateInput)
 	if err != nil {
-		return errors.Wrap(err, "cannot update new task definition: ")
+		return errors.Wrap(err, "failed to update service in ECS")
 	}
 
 	return nil

@@ -31,7 +31,7 @@ type Result struct {
 }
 
 // Deploy will deploy the given services to AWS ECS.
-func Deploy(services []config.Service, ecsClient ecsiface.ECSAPI) []Result {
+func Deploy(services []*config.Service, ecsClient ecsiface.ECSAPI) []Result {
 	resultChan := make(chan Result)
 
 	// Deploy all the services concurrently
@@ -39,7 +39,7 @@ func Deploy(services []config.Service, ecsClient ecsiface.ECSAPI) []Result {
 		go func(service *config.Service) {
 			err := awsecs.Deploy(service, ecsClient)
 			resultChan <- Result{service, err}
-		}(&s)
+		}(s)
 	}
 
 	// Collect and report the results
@@ -52,9 +52,38 @@ func Deploy(services []config.Service, ecsClient ecsiface.ECSAPI) []Result {
 	return results
 }
 
+func Rollback(services []*config.Service, ecsClient ecsiface.ECSAPI) []Result {
+	resultChan := make(chan Result)
+
+	// Rollback all the services concurrently
+	for _, s := range services {
+		// Swap Gitshas and TaskDef ARNs to rollback
+		gitsha := s.PreviousGitsha
+		s.PreviousGitsha = s.Gitsha
+		s.Gitsha = gitsha
+
+		taskDefARN := s.PreviousTaskDefinitionARN
+		s.PreviousTaskDefinitionARN = s.TaskDefinitionARN
+		s.TaskDefinitionARN = taskDefARN
+
+		go func(service *config.Service) {
+			err := awsecs.UpdateService(service, ecsClient)
+			resultChan <- Result{service, err}
+		}(s)
+	}
+
+	results := make([]Result, len(services))
+	for i := 0; i < len(services); i++ {
+		result := <-resultChan
+		results = append(results, result)
+	}
+
+	return results
+}
+
 // CheckDeployed keeps pinging the services until it sees the new version has been deployed
 // or it times out. If a service timed out Result.err will be ErrTimedOut.
-func CheckDeployed(services []config.Service) []Result {
+func CheckDeployed(services []*config.Service) []Result {
 	successChan := make(chan *config.Service)
 
 	for _, s := range services {
@@ -77,7 +106,7 @@ func CheckDeployed(services []config.Service) []Result {
 					return
 				}
 			}
-		}(&s)
+		}(s)
 	}
 
 	// Set of service names that succeeded
@@ -97,7 +126,7 @@ loop:
 
 	results := make([]Result, len(services))
 	for _, s := range services {
-		result := Result{Service: &s}
+		result := Result{Service: s}
 
 		succeeded := succeededServices[s.Name]
 		if !succeeded {
@@ -112,7 +141,7 @@ loop:
 
 // CheckDrained keeps checking the services until it sees all old versions are gone
 // or it times out. If a service timed out Result.err will be ErrTimedOut.
-func CheckDrained(services []config.Service, ecsClient ecsiface.ECSAPI) []Result {
+func CheckDrained(services []*config.Service, ecsClient ecsiface.ECSAPI) []Result {
 	resultChan := make(chan Result)
 
 	for _, s := range services {
@@ -136,7 +165,7 @@ func CheckDrained(services []config.Service, ecsClient ecsiface.ECSAPI) []Result
 				resultChan <- Result{Service: service}
 				return
 			}
-		}(&s)
+		}(s)
 	}
 
 	// Set of service names that succeeded
@@ -160,7 +189,7 @@ loop:
 	for _, s := range services {
 		succeeded := succeededServices[s.Name]
 		if !succeeded {
-			result := Result{&s, ErrTimedOut}
+			result := Result{s, ErrTimedOut}
 			results = append(results, result)
 		}
 	}

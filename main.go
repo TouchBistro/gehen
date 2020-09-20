@@ -28,7 +28,7 @@ var (
 	statsdClient *statsd.Client
 )
 
-func sendStatsdEvents(services []config.Service, eventTitle, eventText string) {
+func sendStatsdEvents(services []*config.Service, eventTitle, eventText string) {
 	if statsdClient == nil {
 		return
 	}
@@ -186,7 +186,6 @@ func main() {
 		if useSentry {
 			sentry.CaptureException(result.Err)
 		}
-
 	}
 
 	if checkDrainedFailed {
