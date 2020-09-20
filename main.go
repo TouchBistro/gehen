@@ -9,6 +9,7 @@ import (
 	"github.com/DataDog/datadog-go/statsd"
 	"github.com/TouchBistro/gehen/config"
 	"github.com/TouchBistro/gehen/deploy"
+	"github.com/TouchBistro/goutils/color"
 	"github.com/TouchBistro/goutils/fatal"
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/session"
@@ -67,7 +68,7 @@ func performRollback(services []*config.Service, ecsClient *ecs.ECS) {
 		}
 
 		rollbackFailed = true
-		log.Printf("Failed to rollback %s", result.Service.Name)
+		log.Printf("Failed to create rollback for %s", color.Cyan(result.Service.Name))
 		log.Printf("Error: %v", result.Err)
 
 		if useSentry {
@@ -76,7 +77,7 @@ func performRollback(services []*config.Service, ecsClient *ecs.ECS) {
 	}
 
 	if rollbackFailed {
-		fatal.Exit("Failed to rollback services")
+		fatal.Exit(color.Red("Failed to create rollbacks for services"))
 	}
 
 	sendStatsdEvents(services, "gehen.rollbacks.started", "Gehen started a rollback for service %s")
@@ -92,11 +93,11 @@ func performRollback(services []*config.Service, ecsClient *ecs.ECS) {
 		checkDeployedFailed = true
 
 		if errors.Is(result.Err, deploy.ErrTimedOut) {
-			log.Printf("Timed out while checking for rolled back version of %s", result.Service.Name)
+			log.Printf("Timed out while checking for rolled back version of %s", color.Cyan(result.Service.Name))
 			continue
 		}
 
-		log.Printf("Failed to check for rolled back version of %s", result.Service.Name)
+		log.Printf("Failed to check for rolled back version of %s", color.Cyan(result.Service.Name))
 		log.Printf("Error: %v", result.Err)
 
 		if useSentry {
@@ -105,7 +106,7 @@ func performRollback(services []*config.Service, ecsClient *ecs.ECS) {
 	}
 
 	if checkDeployedFailed {
-		fatal.Exit("Failed to confirm services rolled back")
+		fatal.Exit(color.Red("Failed to confirm services rolled back"))
 	}
 
 	sendStatsdEvents(services, "gehen.rollbacks.draining", "Gehen is checking for service rollback drain on %s")
@@ -121,11 +122,11 @@ func performRollback(services []*config.Service, ecsClient *ecs.ECS) {
 		checkDrainedFailed = true
 
 		if errors.Is(result.Err, deploy.ErrTimedOut) {
-			log.Printf("Timed out while waiting for new deployment of %s to drain (old tasks are still running, go check datadog logs)", result.Service.Name)
+			log.Printf("Timed out while waiting for new versions of %s to stop running", color.Cyan(result.Service.Name))
 			continue
 		}
 
-		log.Printf("Failed to check if %s drained", result.Service.Name)
+		log.Printf("Failed to check if new deployments of %s stopped", color.Cyan(result.Service.Name))
 		log.Printf("Error: %v", result.Err)
 
 		if useSentry {
@@ -134,14 +135,14 @@ func performRollback(services []*config.Service, ecsClient *ecs.ECS) {
 	}
 
 	if checkDrainedFailed {
-		log.Println("The rollback was successful but some of the newer versions are still running")
-		log.Println("Please investigate why this is the case")
+		log.Println(color.Yellow("The rollback was successful but some of the newer versions are still running"))
+		log.Println(color.Yellow("Please investigate why this is the case"))
 	} else {
 		sendStatsdEvents(services, "gehen.rollbacks.completed", "Gehen successfully rolled back %s")
 	}
 
 	// TODO(@cszatmary): Does it make sense to fatal here?
-	fatal.Exit("Finished deploying all services")
+	fatal.Exit(color.Yellow("Finished rolling back services"))
 }
 
 func main() {
@@ -224,7 +225,7 @@ func main() {
 		}
 
 		deployFailed = true
-		log.Printf("Failed to deploy %s", result.Service.Name)
+		log.Printf("Failed to create new deployment for %s", color.Cyan(result.Service.Name))
 		log.Printf("Error: %v", result.Err)
 
 		if useSentry {
@@ -235,8 +236,8 @@ func main() {
 	if deployFailed {
 		// If deploying failed we need to rollback all services that succeeded so that they aren't in inconsitent states
 		// If deploy failed that means the new version wasn't even registered on ECS so we only need to rollback ones that succeeded
-		log.Println("Failed to register some services")
-		log.Println("Rolling back services that succeeded to prevent inconsistent states")
+		log.Println(color.Red("Failed to create new versions of some services"))
+		log.Println(color.Yellow("Rolling back services that succeeded to prevent inconsistent states"))
 		performRollback(succeededServices, ecsClient)
 	}
 
@@ -253,11 +254,11 @@ func main() {
 		checkDeployedFailed = true
 
 		if errors.Is(result.Err, deploy.ErrTimedOut) {
-			log.Printf("Timed out while checking for deployed version of %s", result.Service.Name)
+			log.Printf("Timed out while checking for deployed version of %s", color.Cyan(result.Service.Name))
 			continue
 		}
 
-		log.Printf("Failed to check for deployed version of %s", result.Service.Name)
+		log.Printf("Failed to check for deployed version of %s", color.Cyan(result.Service.Name))
 		log.Printf("Error: %v", result.Err)
 
 		if useSentry {
@@ -268,8 +269,8 @@ func main() {
 	if checkDeployedFailed {
 		// If check deployment failed we need to roll everything back
 		// Services that timed out are likely stuck in a death loop
-		log.Println("Some services failed deployment")
-		log.Println("Rolling all services back to the previous version")
+		log.Println(color.Red("Some services failed deployment"))
+		log.Println(color.Yellow("Rolling all services back to the previous version"))
 		performRollback(services, ecsClient)
 	}
 
@@ -286,11 +287,11 @@ func main() {
 		checkDrainedFailed = true
 
 		if errors.Is(result.Err, deploy.ErrTimedOut) {
-			log.Printf("Timed out while waiting for %s to drain (old tasks are still running, go check datadog logs)", result.Service.Name)
+			log.Printf("Timed out while waiting for old versions of %s to stop running", color.Cyan(result.Service.Name))
 			continue
 		}
 
-		log.Printf("Failed to check if %s drained", result.Service.Name)
+		log.Printf("Failed to check if old version of %s are gone", color.Cyan(result.Service.Name))
 		log.Printf("Error: %v", result.Err)
 
 		if useSentry {
@@ -299,12 +300,12 @@ func main() {
 	}
 
 	if checkDrainedFailed {
-		log.Println("Some services still have the old version running")
-		log.Println("This means there are two different versions of the same service in production")
-		log.Println("Please investigate why this is the case")
+		log.Println(color.Yellow("Some services still have the old version running"))
+		log.Println(color.Yellow("This means there are two different versions of the same service in production"))
+		log.Println(color.Yellow("Please investigate why this is the case"))
 	} else {
 		sendStatsdEvents(services, "gehen.deploys.completed", "Gehen successfully deployed %s")
 	}
 
-	log.Println("Finished deploying all services")
+	log.Println(color.Green("Finished deploying all services"))
 }

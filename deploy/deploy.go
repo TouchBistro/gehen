@@ -9,6 +9,7 @@ import (
 
 	"github.com/TouchBistro/gehen/awsecs"
 	"github.com/TouchBistro/gehen/config"
+	"github.com/TouchBistro/goutils/color"
 	"github.com/aws/aws-sdk-go/service/ecs/ecsiface"
 	"github.com/pkg/errors"
 )
@@ -88,19 +89,19 @@ func CheckDeployed(services []*config.Service) []Result {
 
 	for _, s := range services {
 		go func(service *config.Service) {
-			log.Printf("Checking %s for newly deployed version\n", service.URL)
+			log.Printf("Checking %s for newly deployed version of %s\n", color.Blue(service.URL), color.Cyan(service.Name))
 
 			for {
 				time.Sleep(checkIntervalSecs * time.Second)
 
 				fetchedSha, err := fetchRevisionSha(service.URL)
 				if err != nil {
-					log.Printf("Could not parse a gitsha version from header or body at %s\n", service.URL)
+					log.Printf("Could not parse a Git SHA version from header or body at %s\n", color.Blue(service.URL))
 					log.Printf("Error: %v", err)
 					continue
 				}
 
-				log.Printf("Got %s from %s\n", fetchedSha, service.URL)
+				log.Printf("Got %s from %s\n", color.Magenta(fetchedSha), color.Blue(service.URL))
 				if len(fetchedSha) > 7 && strings.HasPrefix(service.Gitsha, fetchedSha) {
 					successChan <- service
 					return
@@ -116,7 +117,7 @@ loop:
 	for i := 0; i < len(services); i++ {
 		select {
 		case service := <-successChan:
-			log.Printf("Traffic showing version %s on %s, waiting for old tasks to drain...\n", service.Gitsha, service.Name)
+			log.Printf("Traffic showing version %s on %s, waiting for old versions to stop...\n", color.Green(service.Gitsha), color.Cyan(service.Name))
 			succeededServices[service.Name] = true
 		case <-time.After(timeoutMins * time.Minute):
 			// Stop looping, anything that didn't succeed has now failed
@@ -148,7 +149,7 @@ func CheckDrained(services []*config.Service, ecsClient ecsiface.ECSAPI) []Resul
 		go func(service *config.Service) {
 			for {
 				time.Sleep(checkIntervalSecs * time.Second)
-				log.Printf("Checking task count on: %s\n", service.Name)
+				log.Printf("Checking if old versions are gone for: %s\n", color.Cyan(service.Name))
 
 				drained, err := awsecs.CheckDrain(service, ecsClient)
 				if err != nil {
@@ -176,7 +177,7 @@ loop:
 	for i := 0; i < len(services); i++ {
 		select {
 		case result := <-resultChan:
-			log.Printf("Version %s successfully deployed to %s\n", result.Service.Gitsha, result.Service.Name)
+			log.Printf("Version %s successfully deployed to %s\n", color.Green(result.Service.Gitsha), color.Cyan(result.Service.Name))
 			succeededServices[result.Service.Name] = true
 			results = append(results, result)
 		case <-time.After(timeoutMins * time.Minute):
