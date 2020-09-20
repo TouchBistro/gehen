@@ -53,10 +53,94 @@ func sendStatsdEvents(services []*config.Service, eventTitle, eventText string) 
 	}
 }
 
-func main() {
-	// Don't show stack traces because it's too noisy. Stack traces will be captured in Sentry
-	fatal.ShowStackTraces = false
+func performRollback(services []*config.Service, ecsClient *ecs.ECS) {
+	rollbackResults := deploy.Rollback(services, ecsClient)
+	rollbackFailed := false
 
+	for _, result := range rollbackResults {
+		if result.Err == nil {
+			continue
+		}
+
+		rollbackFailed = true
+		log.Printf("Failed to rollback %s", result.Service.Name)
+		log.Printf("Error: %v", result.Err)
+
+		if useSentry {
+			sentry.CaptureException(result.Err)
+		}
+	}
+
+	if rollbackFailed {
+		fatal.Exit("Failed to rollback services")
+	}
+
+	sendStatsdEvents(services, "gehen.rollbacks.started", "Gehen started a rollback for service %s")
+
+	checkDeployedResults := deploy.CheckDeployed(services)
+	checkDeployedFailed := false
+
+	for _, result := range checkDeployedResults {
+		if result.Err == nil {
+			continue
+		}
+
+		checkDeployedFailed = true
+
+		if errors.Is(result.Err, deploy.ErrTimedOut) {
+			log.Printf("Timed out while checking for rolled back version of %s", result.Service.Name)
+			continue
+		}
+
+		log.Printf("Failed to check for rolled back version of %s", result.Service.Name)
+		log.Printf("Error: %v", result.Err)
+
+		if useSentry {
+			sentry.CaptureException(result.Err)
+		}
+	}
+
+	if checkDeployedFailed {
+		fatal.Exit("Failed to confirm services rolled back")
+	}
+
+	sendStatsdEvents(services, "gehen.rollbacks.draining", "Gehen is checking for service rollback drain on %s")
+
+	checkDrainedResults := deploy.CheckDrained(services, ecsClient)
+	checkDrainedFailed := false
+
+	for _, result := range checkDrainedResults {
+		if result.Err == nil {
+			continue
+		}
+
+		checkDrainedFailed = true
+
+		if errors.Is(result.Err, deploy.ErrTimedOut) {
+			log.Printf("Timed out while waiting for new deployment of %s to drain (old tasks are still running, go check datadog logs)", result.Service.Name)
+			continue
+		}
+
+		log.Printf("Failed to check if %s drained", result.Service.Name)
+		log.Printf("Error: %v", result.Err)
+
+		if useSentry {
+			sentry.CaptureException(result.Err)
+		}
+	}
+
+	if checkDrainedFailed {
+		log.Println("The rollback was successful but some of the newer versions are still running")
+		log.Println("Please investigate why this is the case")
+	} else {
+		sendStatsdEvents(services, "gehen.rollbacks.completed", "Gehen successfully rolled back %s")
+	}
+
+	// TODO(@cszatmary): Does it make sense to fatal here?
+	fatal.Exit("Finished deploying all services")
+}
+
+func main() {
 	// Handle flags
 	flag.StringVar(&gitsha, "gitsha", "", "The gitsha of the version to be deployed")
 	flag.StringVar(&configPath, "path", "", "The path to a gehen.yml config file")
@@ -89,6 +173,11 @@ func main() {
 
 		statsdClient = client
 		defer statsdClient.Flush()
+
+		// defers are skipped if Exit is used so we need to make sure flush still gets called
+		fatal.OnExit(func() {
+			statsdClient.Flush()
+		})
 	}
 
 	// gehen config, get and validate services
@@ -111,12 +200,12 @@ func main() {
 	// DEPLOYMENT ZONE //
 
 	deployResults := deploy.Deploy(services, ecsClient)
-	// TODO(@cszatmary) implement rollbacks
-	// will do this in the next PR, for now keep the behaviour the same as before
 	deployFailed := false
+	succeededServices := make([]*config.Service, 0)
 
 	for _, result := range deployResults {
 		if result.Err == nil {
+			succeededServices = append(succeededServices, result.Service)
 			continue
 		}
 
@@ -130,7 +219,11 @@ func main() {
 	}
 
 	if deployFailed {
-		fatal.Exit("Failed deploying to AWS")
+		// If deploying failed we need to rollback all services that succeeded so that they aren't in inconsitent states
+		// If deploy failed that means the new version wasn't even registered on ECS so we only need to rollback ones that succeeded
+		log.Println("Failed to register some services")
+		log.Println("Rolling back services that succeeded to prevent inconsistent states")
+		performRollback(succeededServices, ecsClient)
 	}
 
 	sendStatsdEvents(services, "gehen.deploys.started", "Gehen started a deploy for service %s")
@@ -156,11 +249,14 @@ func main() {
 		if useSentry {
 			sentry.CaptureException(result.Err)
 		}
-
 	}
 
 	if checkDeployedFailed {
-		fatal.Exit("Failed to check for new versions of services")
+		// If check deployment failed we need to roll everything back
+		// Services that timed out are likely stuck in a death loop
+		log.Println("Some services failed deployment")
+		log.Println("Rolling all services back to the previous version")
+		performRollback(services, ecsClient)
 	}
 
 	sendStatsdEvents(services, "gehen.deploys.draining", "Gehen is checking for service drain on %s")
@@ -176,7 +272,7 @@ func main() {
 		checkDrainedFailed = true
 
 		if errors.Is(result.Err, deploy.ErrTimedOut) {
-			log.Printf("Timed out while waiting for %s to drain (old tasks are still running, go check datadog logs", result.Service.Name)
+			log.Printf("Timed out while waiting for %s to drain (old tasks are still running, go check datadog logs)", result.Service.Name)
 			continue
 		}
 
@@ -189,10 +285,12 @@ func main() {
 	}
 
 	if checkDrainedFailed {
-		fatal.Exit("Failed to check if services have drained")
+		log.Println("Some services still have the old version running")
+		log.Println("This means there are two different versions of the same service in production")
+		log.Println("Please investigate why this is the case")
+	} else {
+		sendStatsdEvents(services, "gehen.deploys.completed", "Gehen successfully deployed %s")
 	}
 
-	sendStatsdEvents(services, "gehen.deploys.completed", "Gehen successfully deployed %s")
-
-	log.Printf("Finished deploying all services")
+	log.Println("Finished deploying all services")
 }
