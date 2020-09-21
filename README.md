@@ -5,8 +5,6 @@ Gehen is a mininal version update aid for ECS services. It assumes the service i
 Usage of ./gehen:
   -gitsha string
         The gitsha of the version to be deployed
-  -migrate string
-        Launch a one-off migration task along with the service update
   -path string
         The path to a gehen.yml config file
 ```

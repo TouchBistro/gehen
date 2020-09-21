@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/TouchBistro/gehen/config"
+	"github.com/TouchBistro/goutils/color"
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/arn"
 	"github.com/aws/aws-sdk-go/service/ecs"
@@ -18,7 +19,7 @@ func Deploy(service *config.Service, ecsClient ecsiface.ECSAPI) error {
 	// Ensure we've been passed a valid cluster ARN and exit if not
 	clusterArn, err := arn.Parse(service.Cluster)
 	if err != nil {
-		return errors.Wrap(err, "invalid cluster ARN: ")
+		return errors.Wrapf(err, "invalid cluster ARN: %s", service.Cluster)
 	}
 	log.Printf("Using cluster: %s\n", clusterArn)
 
@@ -30,21 +31,21 @@ func Deploy(service *config.Service, ecsClient ecsiface.ECSAPI) error {
 		Cluster: &service.Cluster,
 	}
 
-	log.Printf("Checking for service: %s\n", service.Name)
+	log.Printf("Checking for service: %s\n", color.Cyan(service.Name))
 	respDescribeServices, err := ecsClient.DescribeServices(serviceInput)
 	if err != nil {
-		return errors.Wrap(err, "cannot get current service: ")
+		return errors.Wrapf(err, "failed to find service: %s", service.Name)
 	}
 
 	taskDefID := *respDescribeServices.Services[0].TaskDefinition
-	log.Printf("Found current task def: %+v\n", taskDefID)
+	log.Printf("Found current task definition: %+v\n", taskDefID)
 
 	// Use resolved service info to grab existing task def
 	respDescribeTaskDef, err := ecsClient.DescribeTaskDefinition(&ecs.DescribeTaskDefinitionInput{
 		TaskDefinition: &taskDefID,
 	})
 	if err != nil {
-		return errors.Wrap(err, "cannot get task definition: ")
+		return errors.Wrapf(err, "failed to get task definition for service: %s", service.Name)
 	}
 
 	// Convert API output to be ready to update task.
@@ -79,7 +80,7 @@ func Deploy(service *config.Service, ecsClient ecsiface.ECSAPI) error {
 
 		// Get new image by using new SHA
 		newImage := fmt.Sprintf("%s:%s", strings.Join(t[:len(t)-1], ""), service.Gitsha)
-		log.Printf("Changing container image %s to %s", *container.Image, newImage)
+		log.Printf("Changing container image %s to %s", color.Cyan(*container.Image), color.Cyan(newImage))
 		*newTaskInput.ContainerDefinitions[i].Image = newImage
 	}
 
@@ -97,20 +98,7 @@ func Deploy(service *config.Service, ecsClient ecsiface.ECSAPI) error {
 	}
 
 	newTaskArn := *respRegisterTaskDef.TaskDefinition.TaskDefinitionArn
-	log.Printf("Registered new task definition %s, updating service %s\n", newTaskArn, service.Name)
-
-	// Update the service to create a new deployment
-	serviceUpdateInput := &ecs.UpdateServiceInput{
-		TaskDefinition:     &newTaskArn,
-		Service:            &service.Name,
-		Cluster:            &service.Cluster,
-		ForceNewDeployment: aws.Bool(true),
-	}
-
-	_, err = ecsClient.UpdateService(serviceUpdateInput)
-	if err != nil {
-		return errors.Wrap(err, "cannot update new task definition: ")
-	}
+	log.Printf("Registered new task definition %s, updating service %s\n", color.Cyan(newTaskArn), color.Cyan(service.Name))
 
 	// Set dynamic service values
 	// Save previous Git SHA in case we need to rollback later
@@ -119,14 +107,18 @@ func Deploy(service *config.Service, ecsClient ecsiface.ECSAPI) error {
 	service.TaskDefinitionARN = newTaskArn
 	service.Tags = tags
 
+	err = UpdateService(service, ecsClient)
+	if err != nil {
+		return errors.Wrap(err, "failed to update service")
+	}
+
 	return nil
 }
 
-// Rollback triggers a rollback of the service by updating the service to use the previous
-// task definition.
-func Rollback(service *config.Service, ecsClient ecsiface.ECSAPI) error {
+// UpdateService creates a new deployment on ECS.
+func UpdateService(service *config.Service, ecsClient ecsiface.ECSAPI) error {
 	serviceUpdateInput := &ecs.UpdateServiceInput{
-		TaskDefinition:     &service.PreviousTaskDefinitionARN,
+		TaskDefinition:     &service.TaskDefinitionARN,
 		Service:            &service.Name,
 		Cluster:            &service.Cluster,
 		ForceNewDeployment: aws.Bool(true),
@@ -134,7 +126,7 @@ func Rollback(service *config.Service, ecsClient ecsiface.ECSAPI) error {
 
 	_, err := ecsClient.UpdateService(serviceUpdateInput)
 	if err != nil {
-		return errors.Wrap(err, "cannot update new task definition: ")
+		return errors.Wrapf(err, "failed to update service %s in ECS", service.Name)
 	}
 
 	return nil
@@ -151,7 +143,7 @@ func CheckDrain(service *config.Service, ecsClient ecsiface.ECSAPI) (bool, error
 
 	respDescribeServices, err := ecsClient.DescribeServices(serviceInput)
 	if err != nil {
-		return false, errors.Wrapf(err, "cannot get current service: %s", service.Name)
+		return false, errors.Wrapf(err, "failed to get current service: %s", service.Name)
 	}
 
 	for _, deployment := range respDescribeServices.Services[0].Deployments {

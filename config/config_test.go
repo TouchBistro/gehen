@@ -8,7 +8,7 @@ import (
 
 func TestReadServices(t *testing.T) {
 	gitsha := "da39a3ee5e6b4b0d3255bfef95601890afd80709"
-	expectedServices := []Service{
+	expectedServices := []*Service{
 		{
 			Name:    "example-production",
 			Gitsha:  gitsha,
