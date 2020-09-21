@@ -68,7 +68,7 @@ func performRollback(services []*config.Service, ecsClient *ecs.ECS) {
 		}
 
 		rollbackFailed = true
-		log.Printf("Failed to create rollback for %s", color.Cyan(result.Service.Name))
+		log.Printf("Failed to create rollback to %s for %s", color.Magenta(result.Service.Gitsha), color.Cyan(result.Service.Name))
 		log.Printf("Error: %v", result.Err)
 
 		if useSentry {
@@ -77,7 +77,7 @@ func performRollback(services []*config.Service, ecsClient *ecs.ECS) {
 	}
 
 	if rollbackFailed {
-		fatal.Exit(color.Red("Failed to create rollbacks for services"))
+		fatal.Exit(color.Red("🚨 Failed to create rollbacks for services 🚨"))
 	}
 
 	sendStatsdEvents(services, "gehen.rollbacks.started", "Gehen started a rollback for service %s")
@@ -93,11 +93,19 @@ func performRollback(services []*config.Service, ecsClient *ecs.ECS) {
 		checkDeployedFailed = true
 
 		if errors.Is(result.Err, deploy.ErrTimedOut) {
-			log.Printf("Timed out while checking for rolled back version of %s", color.Cyan(result.Service.Name))
+			log.Printf(
+				"Timed out while checking for rolled back version %s of %s",
+				color.Magenta(result.Service.Gitsha),
+				color.Cyan(result.Service.Name),
+			)
 			continue
 		}
 
-		log.Printf("Failed to check for rolled back version of %s", color.Cyan(result.Service.Name))
+		log.Printf(
+			"Failed to check for rolled back version %s of %s",
+			color.Magenta(result.Service.Gitsha),
+			color.Cyan(result.Service.Name),
+		)
 		log.Printf("Error: %v", result.Err)
 
 		if useSentry {
@@ -106,7 +114,9 @@ func performRollback(services []*config.Service, ecsClient *ecs.ECS) {
 	}
 
 	if checkDeployedFailed {
-		fatal.Exit(color.Red("Failed to confirm services rolled back"))
+		log.Println("This means your service failed to boot, or was unable to serve requests.")
+		log.Println("Your next step should be to check the logs for your service to find out why.")
+		fatal.Exit(color.Red("🚨 Failed to confirm services rolled back 🚨"))
 	}
 
 	sendStatsdEvents(services, "gehen.rollbacks.draining", "Gehen is checking for service rollback drain on %s")
@@ -141,8 +151,7 @@ func performRollback(services []*config.Service, ecsClient *ecs.ECS) {
 		sendStatsdEvents(services, "gehen.rollbacks.completed", "Gehen successfully rolled back %s")
 	}
 
-	// TODO(@cszatmary): Does it make sense to fatal here?
-	fatal.Exit(color.Yellow("Finished rolling back services"))
+	fatal.Exit(color.Yellow("🚨 Finished rolling back services 🚨"))
 }
 
 func main() {
@@ -225,7 +234,11 @@ func main() {
 		}
 
 		deployFailed = true
-		log.Printf("Failed to create new deployment for %s", color.Cyan(result.Service.Name))
+		log.Printf(
+			"Failed to create new deployment to version %s for %s",
+			color.Magenta(result.Service.Gitsha),
+			color.Cyan(result.Service.Name),
+		)
 		log.Printf("Error: %v", result.Err)
 
 		if useSentry {
@@ -254,11 +267,19 @@ func main() {
 		checkDeployedFailed = true
 
 		if errors.Is(result.Err, deploy.ErrTimedOut) {
-			log.Printf("Timed out while checking for deployed version of %s", color.Cyan(result.Service.Name))
+			log.Printf(
+				"Timed out while checking for deployed version %s of %s",
+				color.Magenta(result.Service.Gitsha),
+				color.Cyan(result.Service.Name),
+			)
 			continue
 		}
 
-		log.Printf("Failed to check for deployed version of %s", color.Cyan(result.Service.Name))
+		log.Printf(
+			"Failed to check for deployed version %s of %s",
+			color.Magenta(result.Service.Gitsha),
+			color.Cyan(result.Service.Name),
+		)
 		log.Printf("Error: %v", result.Err)
 
 		if useSentry {
@@ -270,6 +291,8 @@ func main() {
 		// If check deployment failed we need to roll everything back
 		// Services that timed out are likely stuck in a death loop
 		log.Println(color.Red("Some services failed deployment"))
+		log.Println("This means your service failed to boot, or was unable to serve requests.")
+		log.Println("Your next step should be to check the logs for your service to find out why.")
 		log.Println(color.Yellow("Rolling all services back to the previous version"))
 		performRollback(services, ecsClient)
 	}
@@ -307,5 +330,5 @@ func main() {
 		sendStatsdEvents(services, "gehen.deploys.completed", "Gehen successfully deployed %s")
 	}
 
-	log.Println(color.Green("Finished deploying all services"))
+	log.Println(color.Green("🚀 Finished deploying all services 🚀"))
 }
