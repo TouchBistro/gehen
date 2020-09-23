@@ -21,3 +21,11 @@ services: # A map of services
     cluster: string # The ECS cluster the service is in
     url: string # The URL to use to check that the new version has been deployed
 ```
+
+## Contributing
+
+See [contributing](CONTRIBUTING.md) for instructions on how to contribute to `gehen`. PRs welcome!
+
+## License
+
+MIT © TouchBistro, see [LICENSE](LICENSE) for details.
