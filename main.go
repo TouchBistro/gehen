@@ -64,6 +64,16 @@ func cleanup() {
 
 	if statsdClient != nil {
 		log.Println("Sending StatsD events")
+
+		// Increment metric to test that this stuff is working properly
+		err := statsdClient.Incr("gehen.debug.completed", nil, 1)
+		if err != nil {
+			err = errors.Wrap(err, "failed to increment metric")
+			if useSentry {
+				sentry.CaptureException(err)
+			}
+		}
+
 		statsdClient.Flush()
 	}
 }
@@ -200,7 +210,11 @@ func main() {
 	}
 
 	if ddAgentHost, ok := os.LookupEnv("DD_AGENT_HOST"); ok {
-		client, err := statsd.New(ddAgentHost)
+		client, err := statsd.New(ddAgentHost, statsd.Option(func(o *statsd.Options) error {
+			// Try creating an unbuffered client to see if completed events show up
+			o.MaxMessagesPerPayload = 1
+			return nil
+		}))
 		if err != nil {
 			fatal.ExitErr(err, "Could not create StatsD agent (DD_AGENT_HOST may not be set)")
 		}
