@@ -41,7 +41,7 @@ func sendStatsdEvents(services []*config.Service, eventTitle, eventText string) 
 	for _, s := range services {
 		event := &statsd.Event{
 			// Title of the event.  Required.
-			Title: eventText,
+			Title: eventTitle,
 			// Text is the description of the event.  Required.
 			Text: fmt.Sprintf(eventText, s.Name),
 			// Tags for the event.
@@ -55,6 +55,16 @@ func sendStatsdEvents(services []*config.Service, eventTitle, eventText string) 
 				sentry.CaptureException(err)
 			}
 		}
+	}
+}
+
+func cleanup() {
+	// Perform any necessary clean up before gehen exits
+	log.Println("Performing clean up before exiting")
+
+	if statsdClient != nil {
+		log.Println("Sending StatsD events")
+		statsdClient.Flush()
 	}
 }
 
@@ -196,13 +206,12 @@ func main() {
 		}
 
 		statsdClient = client
-		defer statsdClient.Flush()
-
-		// defers are skipped if Exit is used so we need to make sure flush still gets called
-		fatal.OnExit(func() {
-			statsdClient.Flush()
-		})
 	}
+
+	defer cleanup()
+
+	// defers are skipped if Exit is used so we need to make sure flush still gets called
+	fatal.OnExit(cleanup)
 
 	// gehen config, get and validate services
 
