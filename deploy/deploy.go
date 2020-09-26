@@ -46,8 +46,7 @@ func Deploy(services []*config.Service, ecsClient ecsiface.ECSAPI) []Result {
 	// Collect and report the results
 	results := make([]Result, len(services))
 	for i := 0; i < len(services); i++ {
-		result := <-resultChan
-		results = append(results, result)
+		results[i] = <-resultChan
 	}
 
 	return results
@@ -75,8 +74,7 @@ func Rollback(services []*config.Service, ecsClient ecsiface.ECSAPI) []Result {
 
 	results := make([]Result, len(services))
 	for i := 0; i < len(services); i++ {
-		result := <-resultChan
-		results = append(results, result)
+		results[i] = <-resultChan
 	}
 
 	return results
@@ -126,7 +124,7 @@ loop:
 	}
 
 	results := make([]Result, len(services))
-	for _, s := range services {
+	for i, s := range services {
 		result := Result{Service: s}
 
 		succeeded := succeededServices[s.Name]
@@ -134,7 +132,7 @@ loop:
 			result.Err = ErrTimedOut
 		}
 
-		results = append(results, result)
+		results[i] = result
 	}
 
 	return results
@@ -171,7 +169,7 @@ func CheckDrained(services []*config.Service, ecsClient ecsiface.ECSAPI) []Resul
 
 	// Set of service names that succeeded
 	succeededServices := make(map[string]bool)
-	results := make([]Result, len(services))
+	results := make([]Result, 0, len(services))
 
 loop:
 	for i := 0; i < len(services); i++ {
