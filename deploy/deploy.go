@@ -14,11 +14,12 @@ import (
 	"github.com/pkg/errors"
 )
 
-// Deployment check timeout in minutes
-const timeoutMins = 5
-
-// Check interval in seconds
-const checkIntervalSecs = 15
+var (
+	// Deployment check timeout in minutes
+	timeoutDuration = 5 * time.Minute
+	// Check interval in seconds
+	checkIntervalDuration = 15 * time.Second
+)
 
 // ErrTimedOut represents the fact that a timeout occurred while waiting
 // for a service to deploy or drain.
@@ -29,6 +30,20 @@ var ErrTimedOut = errors.New("deploy: timed out while checking for event")
 type Result struct {
 	Service *config.Service
 	Err     error
+}
+
+// TimeoutDuration sets the duration to wait for CheckDeployed and CheckDrained
+// before timing out.
+// Default is 5 minutes.
+func TimeoutDuration(d time.Duration) {
+	timeoutDuration = d
+}
+
+// CheckIntervalDuration sets the duration of how frequently to check
+// if a service has deployed or drained.
+// Default is 15 seconds.
+func CheckIntervalDuration(d time.Duration) {
+	checkIntervalDuration = d
 }
 
 // Deploy will deploy the given services to AWS ECS.
@@ -46,8 +61,7 @@ func Deploy(services []*config.Service, ecsClient ecsiface.ECSAPI) []Result {
 	// Collect and report the results
 	results := make([]Result, len(services))
 	for i := 0; i < len(services); i++ {
-		result := <-resultChan
-		results = append(results, result)
+		results[i] = <-resultChan
 	}
 
 	return results
@@ -75,8 +89,7 @@ func Rollback(services []*config.Service, ecsClient ecsiface.ECSAPI) []Result {
 
 	results := make([]Result, len(services))
 	for i := 0; i < len(services); i++ {
-		result := <-resultChan
-		results = append(results, result)
+		results[i] = <-resultChan
 	}
 
 	return results
@@ -92,7 +105,7 @@ func CheckDeployed(services []*config.Service) []Result {
 			log.Printf("Checking %s for newly deployed version of %s\n", color.Blue(service.URL), color.Cyan(service.Name))
 
 			for {
-				time.Sleep(checkIntervalSecs * time.Second)
+				time.Sleep(checkIntervalDuration)
 
 				fetchedSha, err := fetchRevisionSha(service.URL)
 				if err != nil {
@@ -119,14 +132,14 @@ loop:
 		case service := <-successChan:
 			log.Printf("Traffic showing version %s on %s, waiting for old versions to stop...\n", color.Green(service.Gitsha), color.Cyan(service.Name))
 			succeededServices[service.Name] = true
-		case <-time.After(timeoutMins * time.Minute):
+		case <-time.After(timeoutDuration):
 			// Stop looping, anything that didn't succeed has now failed
 			break loop
 		}
 	}
 
 	results := make([]Result, len(services))
-	for _, s := range services {
+	for i, s := range services {
 		result := Result{Service: s}
 
 		succeeded := succeededServices[s.Name]
@@ -134,7 +147,7 @@ loop:
 			result.Err = ErrTimedOut
 		}
 
-		results = append(results, result)
+		results[i] = result
 	}
 
 	return results
@@ -148,7 +161,7 @@ func CheckDrained(services []*config.Service, ecsClient ecsiface.ECSAPI) []Resul
 	for _, s := range services {
 		go func(service *config.Service) {
 			for {
-				time.Sleep(checkIntervalSecs * time.Second)
+				time.Sleep(checkIntervalDuration)
 				log.Printf("Checking if old versions are gone for: %s\n", color.Cyan(service.Name))
 
 				drained, err := awsecs.CheckDrain(service, ecsClient)
@@ -171,7 +184,7 @@ func CheckDrained(services []*config.Service, ecsClient ecsiface.ECSAPI) []Resul
 
 	// Set of service names that succeeded
 	succeededServices := make(map[string]bool)
-	results := make([]Result, len(services))
+	results := make([]Result, 0, len(services))
 
 loop:
 	for i := 0; i < len(services); i++ {
@@ -180,7 +193,7 @@ loop:
 			log.Printf("Version %s successfully deployed to %s\n", color.Green(result.Service.Gitsha), color.Cyan(result.Service.Name))
 			succeededServices[result.Service.Name] = true
 			results = append(results, result)
-		case <-time.After(timeoutMins * time.Minute):
+		case <-time.After(timeoutDuration):
 			// Stop looping, anything that didn't succeed has now failed
 			break loop
 		}

@@ -1,14 +1,15 @@
-package config
+package config_test
 
 import (
 	"testing"
 
+	"github.com/TouchBistro/gehen/config"
 	"github.com/stretchr/testify/assert"
 )
 
 func TestReadServices(t *testing.T) {
 	gitsha := "da39a3ee5e6b4b0d3255bfef95601890afd80709"
-	expectedServices := []*Service{
+	expectedServices := []*config.Service{
 		{
 			Name:    "example-production",
 			Gitsha:  gitsha,
@@ -23,7 +24,7 @@ func TestReadServices(t *testing.T) {
 		},
 	}
 
-	services, err := ReadServices("testdata/gehen.good.yml", gitsha)
+	services, err := config.ReadServices("testdata/gehen.good.yml", gitsha)
 
 	assert.NoError(t, err)
 	assert.ElementsMatch(t, expectedServices, services)
@@ -31,7 +32,14 @@ func TestReadServices(t *testing.T) {
 
 func TestReadServicesInvalid(t *testing.T) {
 	gitsha := "da39a3ee5e6b4b0d3255bfef95601890afd80709"
-	services, err := ReadServices("testdata/gehen.bad.yml", gitsha)
+	services, err := config.ReadServices("testdata/gehen.bad.yml", gitsha)
+
+	assert.Error(t, err)
+	assert.Nil(t, services)
+}
+
+func TestNoGehenYaml(t *testing.T) {
+	services, err := config.ReadServices("testdata/gehen.notfound.yml", "")
 
 	assert.Error(t, err)
 	assert.Nil(t, services)
