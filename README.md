@@ -1,21 +1,28 @@
 # Gehen
 Gehen is a mininal version update aid for ECS services.
+It makes it easy to deploy updates to ECS services, waits for the cutover to complete, and recovers if the deployment fails.
 
 ## How it works
 #### Deployment
-Gehen assumes that docker images are tagged with the Git SHA of the corresponding commit. This makes it easy to identify which version of the code is in a given image.
+Gehen assumes that docker images are tagged with the Git SHA of the corresponding commit.
+This makes it easy to identify which version of the code is in a given image.
 
-Gehen will register a new task definition in ECS for your service and update the image tag to be the new Git SHA provided. It will then update the ECS service to use the new task definition and trigger a new deployment.
+Gehen will register a new task definition in ECS for your service and update the image tag to be the new Git SHA provided.
+It will then update the ECS service to use the new task definition and trigger a new deployment.
 
 **NOTE:** Gehen assumes the service already exists in ECS. It will not create services for you.
 
 #### Deploy Check
-Gehen will keep pinging your service to see if the new version has been deployed. For this to work your service must send the [Server](https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Server) header with the format `*-GITSHA` where `GITSHA` is the Git SHA you provided to Gehen to update the service to.
+Gehen will keep pinging your service to see if the new version has been deployed.
+For this to work your service must send the [Server](https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Server) header with the format `*-GITSHA` where `GITSHA` is the Git SHA you provided to Gehen to update the service to. An example header is `Server: infrastructure-boilerplate-production-api-da39a3ee5e6b4b0d3255bfef95601890afd80709`.
 
 Gehen will keep hitting the URL provided for your services until it either sees the new Git SHA in the header, or times out. The default timeout duration is 5 minutes.
 
 #### Drain Check
-Once Gehen sees that the new version of the service has deployed it will wait for the old version(s) to drain, i.e. stop running. The default timeout duration is 5 minutes.
+Once Gehen sees that the new version of the service has deployed it will wait for the old version(s) to drain.
+A service has drained when the old version is unreachable by the load balancer.
+Gehen also waits until the number of running tasks matches the expected amount of tasks in ECS.
+The default timeout duration is 5 minutes.
 
 ## Usage
 
