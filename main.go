@@ -59,12 +59,7 @@ func sendStatsdEvents(services []*config.Service, eventTitle, eventText string) 
 }
 
 func cleanup() {
-	// Perform any necessary clean up before gehen exits
-	log.Println("Performing clean up before exiting")
-
 	if statsdClient != nil {
-		log.Println("Sending StatsD events")
-
 		// Increment metric to test that this stuff is working properly
 		err := statsdClient.Incr("gehen.debug.completed", nil, 1)
 		if err != nil {
@@ -178,7 +173,7 @@ func main() {
 	// Handle flags
 	flag.BoolVar(&versionFlag, "version", false, "Prints the current gehen version")
 	flag.StringVar(&gitsha, "gitsha", "", "The gitsha of the version to be deployed")
-	flag.StringVar(&configPath, "path", "", "The path to a gehen.yml config file")
+	flag.StringVar(&configPath, "path", "gehen.yml", "The path to a gehen.yml config file")
 
 	flag.Parse()
 
@@ -191,11 +186,9 @@ func main() {
 		os.Exit(0)
 	}
 
-	// gitsha and path are required
+	// gitsha is required
 	if gitsha == "" {
 		fatal.Exit("Must provide a gitsha")
-	} else if configPath == "" {
-		fatal.Exit("Must provide the path to a gehen.yml file")
 	}
 
 	// Initialize observability libraries

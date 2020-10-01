@@ -4,4 +4,4 @@ services:
     url: https://example.touchbistro.io/ping
   example-staging:
     cluster: arn:aws:ecs:us-east-1:123456:cluster/non-prod-cluster
-    url: https://example.touchbistro.io/ping
+    url: https://staging.example.touchbistro.io/ping
