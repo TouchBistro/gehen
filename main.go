@@ -59,12 +59,7 @@ func sendStatsdEvents(services []*config.Service, eventTitle, eventText string) 
 }
 
 func cleanup() {
-	// Perform any necessary clean up before gehen exits
-	log.Println("Performing clean up before exiting")
-
 	if statsdClient != nil {
-		log.Println("Sending StatsD events")
-
 		// Increment metric to test that this stuff is working properly
 		err := statsdClient.Incr("gehen.debug.completed", nil, 1)
 		if err != nil {
