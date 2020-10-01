@@ -32,6 +32,20 @@ type Result struct {
 	Err     error
 }
 
+// TimeoutDuration sets the duration to wait for CheckDeployed and CheckDrained
+// before timing out.
+// Default is 5 minutes.
+func TimeoutDuration(d time.Duration) {
+	timeoutDuration = d
+}
+
+// CheckIntervalDuration sets the duration of how frequently to check
+// if a service has deployed or drained.
+// Default is 15 seconds.
+func CheckIntervalDuration(d time.Duration) {
+	checkIntervalDuration = d
+}
+
 // Deploy will deploy the given services to AWS ECS.
 func Deploy(services []*config.Service, ecsClient ecsiface.ECSAPI) []Result {
 	resultChan := make(chan Result)

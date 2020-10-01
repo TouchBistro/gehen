@@ -1,4 +1,4 @@
-package deploy
+package deploy_test
 
 import (
 	"fmt"
@@ -9,6 +9,7 @@ import (
 
 	"github.com/TouchBistro/gehen/awsecs"
 	"github.com/TouchBistro/gehen/config"
+	"github.com/TouchBistro/gehen/deploy"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -39,7 +40,7 @@ func TestDeploy(t *testing.T) {
 		previousGitsha,
 	)
 
-	expectedResults := []Result{
+	expectedResults := []deploy.Result{
 		{
 			Service: &config.Service{
 				Name:                      "example-production",
@@ -68,7 +69,7 @@ func TestDeploy(t *testing.T) {
 		},
 	}
 
-	results := Deploy(services, mockClient)
+	results := deploy.Deploy(services, mockClient)
 
 	assert.ElementsMatch(t, expectedResults, results)
 }
@@ -108,7 +109,7 @@ func TestRollback(t *testing.T) {
 		previousGitsha,
 	)
 
-	expectedResults := []Result{
+	expectedResults := []deploy.Result{
 		{
 			Service: &config.Service{
 				Name:                      "example-production",
@@ -137,14 +138,14 @@ func TestRollback(t *testing.T) {
 		},
 	}
 
-	results := Rollback(services, mockClient)
+	results := deploy.Rollback(services, mockClient)
 
 	assert.ElementsMatch(t, expectedResults, results)
 }
 
 func TestCheckDeployed(t *testing.T) {
-	timeoutDuration = 3 * time.Second
-	checkIntervalDuration = 250 * time.Millisecond
+	deploy.TimeoutDuration(3 * time.Second)
+	deploy.CheckIntervalDuration(250 * time.Millisecond)
 
 	gitsha := "da39a3ee5e6b4b0d3255bfef95601890afd80709"
 
@@ -175,7 +176,7 @@ func TestCheckDeployed(t *testing.T) {
 		},
 	}
 
-	expectedResults := []Result{
+	expectedResults := []deploy.Result{
 		{
 			Service: &config.Service{
 				Name:   "example-production",
@@ -194,14 +195,14 @@ func TestCheckDeployed(t *testing.T) {
 		},
 	}
 
-	results := CheckDeployed(services)
+	results := deploy.CheckDeployed(services)
 
 	assert.ElementsMatch(t, expectedResults, results)
 }
 
 func TestCheckDeployFailed(t *testing.T) {
-	timeoutDuration = 1 * time.Second
-	checkIntervalDuration = 250 * time.Millisecond
+	deploy.TimeoutDuration(1 * time.Second)
+	deploy.CheckIntervalDuration(250 * time.Millisecond)
 
 	gitsha := "da39a3ee5e6b4b0d3255bfef95601890afd80709"
 	previousGitsha := "b6589fc6ab0dc82cf12099d1c2d40ab994e8410c"
@@ -233,14 +234,14 @@ func TestCheckDeployFailed(t *testing.T) {
 		},
 	}
 
-	expectedResults := []Result{
+	expectedResults := []deploy.Result{
 		{
 			Service: &config.Service{
 				Name:   "example-production",
 				Gitsha: gitsha,
 				URL:    prodServer.URL,
 			},
-			Err: ErrTimedOut,
+			Err: deploy.ErrTimedOut,
 		},
 		{
 			Service: &config.Service{
@@ -248,18 +249,18 @@ func TestCheckDeployFailed(t *testing.T) {
 				Gitsha: gitsha,
 				URL:    stagingServer.URL,
 			},
-			Err: ErrTimedOut,
+			Err: deploy.ErrTimedOut,
 		},
 	}
 
-	results := CheckDeployed(services)
+	results := deploy.CheckDeployed(services)
 
 	assert.ElementsMatch(t, expectedResults, results)
 }
 
 func TestCheckDrain(t *testing.T) {
-	timeoutDuration = 3 * time.Second
-	checkIntervalDuration = 250 * time.Millisecond
+	deploy.TimeoutDuration(3 * time.Second)
+	deploy.CheckIntervalDuration(250 * time.Millisecond)
 
 	gitsha := "da39a3ee5e6b4b0d3255bfef95601890afd80709"
 	services := []*config.Service{
@@ -288,7 +289,7 @@ func TestCheckDrain(t *testing.T) {
 		gitsha,
 	)
 
-	expectedResults := []Result{
+	expectedResults := []deploy.Result{
 		{
 			Service: &config.Service{
 				Name:              "example-production",
@@ -311,14 +312,14 @@ func TestCheckDrain(t *testing.T) {
 		},
 	}
 
-	results := CheckDrained(services, mockClient)
+	results := deploy.CheckDrained(services, mockClient)
 
 	assert.ElementsMatch(t, expectedResults, results)
 }
 
 func TestCheckDrainFailed(t *testing.T) {
-	timeoutDuration = 1 * time.Second
-	checkIntervalDuration = 250 * time.Millisecond
+	deploy.TimeoutDuration(1 * time.Second)
+	deploy.CheckIntervalDuration(250 * time.Millisecond)
 
 	gitsha := "da39a3ee5e6b4b0d3255bfef95601890afd80709"
 	services := []*config.Service{
@@ -349,7 +350,7 @@ func TestCheckDrainFailed(t *testing.T) {
 
 	mockClient.SetServiceStatus("example-production", "ACTIVE")
 
-	expectedResults := []Result{
+	expectedResults := []deploy.Result{
 		{
 			Service: &config.Service{
 				Name:              "example-production",
@@ -358,7 +359,7 @@ func TestCheckDrainFailed(t *testing.T) {
 				URL:               "https://example.touchbistro.io/ping",
 				TaskDefinitionARN: "arn:aws:ecs:us-east-1:123456:task-definition/example-production:1",
 			},
-			Err: ErrTimedOut,
+			Err: deploy.ErrTimedOut,
 		},
 		{
 			Service: &config.Service{
@@ -372,7 +373,7 @@ func TestCheckDrainFailed(t *testing.T) {
 		},
 	}
 
-	results := CheckDrained(services, mockClient)
+	results := deploy.CheckDrained(services, mockClient)
 
 	assert.ElementsMatch(t, expectedResults, results)
 }
