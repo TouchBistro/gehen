@@ -24,6 +24,10 @@ A service has drained when the old version is unreachable by the load balancer.
 Gehen also waits until the number of running tasks matches the expected amount of tasks in ECS.
 The default timeout duration is 5 minutes.
 
+#### Rollback
+If the deployment or deploy check steps fail, Gehen will automatically roll back the service to the previous version.
+It will then go through the same deploy check and drain check processes to ensure the roll back was successful.
+
 ## Usage
 
 ```
