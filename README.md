@@ -2,6 +2,8 @@
 Gehen is a mininal version update aid for ECS services.
 It makes it easy to deploy updates to ECS services, waits for the cutover to complete, and recovers if the deployment fails.
 
+![](docs/resources/gehen.jpg)
+
 ## How it works
 #### Deployment
 Gehen assumes that docker images are tagged with the Git SHA of the corresponding commit.
