@@ -13,8 +13,11 @@ type serviceConfig struct {
 	URL     string `yaml:"url"`
 }
 
+type scheduledTaskConfig struct{}
+
 type gehenConfig struct {
-	Services map[string]serviceConfig `yaml:"services"`
+	Services       map[string]serviceConfig       `yaml:"services"`
+	ScheduledTasks map[string]scheduledTaskConfig `yaml:"scheduledTasks"`
 }
 
 // Service represents a service that can be deployed by gehen.
@@ -31,23 +34,32 @@ type Service struct {
 	Tags                      []string
 }
 
-// ReadServices reads the config file at the given path and returns
-// a slice of services.
-func ReadServices(configPath, gitsha string) ([]*Service, error) {
+// ScheduledTask represents an ECS Scheduled Task.
+type ScheduledTask struct {
+	Name                      string
+	Gitsha                    string
+	PreviousGitsha            string
+	TaskDefinitionARN         string
+	PreviousTaskDefinitionARN string
+}
+
+// Read reads the config file at the given path and returns
+// a slice of services and scheduled tasks.
+func Read(configPath, gitsha string) ([]*Service, []*ScheduledTask, error) {
 	if !file.FileOrDirExists(configPath) {
-		return nil, errors.Errorf("No such file %s", configPath)
+		return nil, nil, errors.Errorf("No such file %s", configPath)
 	}
 
 	file, err := os.Open(configPath)
 	if err != nil {
-		return nil, errors.Wrapf(err, "failed to open file %s", configPath)
+		return nil, nil, errors.Wrapf(err, "failed to open file %s", configPath)
 	}
 	defer file.Close()
 
 	var config gehenConfig
 	err = yaml.NewDecoder(file).Decode(&config)
 	if err != nil {
-		return nil, errors.Wrapf(err, "couldn't read yaml file at %s", configPath)
+		return nil, nil, errors.Wrapf(err, "couldn't read yaml file at %s", configPath)
 	}
 
 	services := make([]*Service, 0, len(config.Services))
@@ -61,5 +73,14 @@ func ReadServices(configPath, gitsha string) ([]*Service, error) {
 		services = append(services, &service)
 	}
 
-	return services, nil
+	scheduledTasks := make([]*ScheduledTask, 0, len(config.ScheduledTasks))
+	for name := range config.ScheduledTasks {
+		task := ScheduledTask{
+			Name:   name,
+			Gitsha: gitsha,
+		}
+		scheduledTasks = append(scheduledTasks, &task)
+	}
+
+	return services, scheduledTasks, nil
 }

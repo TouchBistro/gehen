@@ -5,3 +5,5 @@ services:
   example-staging:
     cluster: arn:aws:ecs:us-east-1:123456:cluster/non-prod-cluster
     url: https://staging.example.touchbistro.io/ping
+scheduledTasks:
+  example-job:

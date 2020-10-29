@@ -14,6 +14,7 @@ import (
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/ecs"
+	"github.com/aws/aws-sdk-go/service/eventbridge"
 	"github.com/getsentry/sentry-go"
 	"github.com/pkg/errors"
 )
@@ -73,7 +74,7 @@ func cleanup() {
 	}
 }
 
-func performRollback(services []*config.Service, ecsClient *ecs.ECS) {
+func performRollback(services []*config.Service, scheduledTasks []*config.ScheduledTask, ebClient *eventbridge.EventBridge, ecsClient *ecs.ECS) {
 	rollbackResults := deploy.Rollback(services, ecsClient)
 	rollbackFailed := false
 
@@ -166,6 +167,35 @@ func performRollback(services []*config.Service, ecsClient *ecs.ECS) {
 		sendStatsdEvents(services, "gehen.rollbacks.completed", "Gehen successfully rolled back %s")
 	}
 
+	// Need to rollback scheduled tasks though since they will likely fail as well
+	// Also they would have inconsitent versions
+	rollbackScheduledTaskResults := deploy.RollbackScheduledTasks(scheduledTasks, ebClient, ecsClient)
+	rollbackScheduledTasksFailed := false
+	succeededScheduledTasks := make([]*config.ScheduledTask, 0)
+
+	for _, result := range rollbackScheduledTaskResults {
+		if result.Err == nil {
+			succeededScheduledTasks = append(succeededScheduledTasks, result.Task)
+			continue
+		}
+
+		rollbackScheduledTasksFailed = true
+		log.Printf(
+			"Failed to roll back scheduled task %s to version %s",
+			color.Cyan(result.Task.Name),
+			color.Magenta(result.Task.PreviousGitsha),
+		)
+		log.Printf("Error: %v", result.Err)
+
+		if useSentry {
+			sentry.CaptureException(result.Err)
+		}
+	}
+
+	if rollbackScheduledTasksFailed {
+		fatal.Exit(color.Red("Failed to roll back some scheduled tasks"))
+	}
+
 	fatal.Exit(color.Yellow("🚨 Finished rolling back services 🚨"))
 }
 
@@ -222,7 +252,7 @@ func main() {
 
 	// gehen config, get and validate services
 
-	services, err := config.ReadServices(configPath, gitsha)
+	services, scheduledTasks, err := config.Read(configPath, gitsha)
 	if err != nil {
 		fatal.ExitErr(err, "Failed to get services from config file")
 	}
@@ -236,8 +266,37 @@ func main() {
 		Region: aws.String("us-east-1"),
 	}))
 	ecsClient := ecs.New(sess)
+	ebClient := eventbridge.New(sess)
 
 	// DEPLOYMENT ZONE //
+
+	// Update scheduled tasks first so if this fails we don't need to worry about rolling back services
+	updateScheduledTaskResults := deploy.UpdateScheduledTasks(scheduledTasks, ebClient, ecsClient)
+	updateScheduledTasksFailed := false
+	succeededScheduledTasks := make([]*config.ScheduledTask, 0)
+
+	for _, result := range updateScheduledTaskResults {
+		if result.Err == nil {
+			succeededScheduledTasks = append(succeededScheduledTasks, result.Task)
+			continue
+		}
+
+		updateScheduledTasksFailed = true
+		log.Printf(
+			"Failed to update scheduled task %s to version %s",
+			color.Cyan(result.Task.Name),
+			color.Magenta(result.Task.Gitsha),
+		)
+		log.Printf("Error: %v", result.Err)
+
+		if useSentry {
+			sentry.CaptureException(result.Err)
+		}
+	}
+
+	if updateScheduledTasksFailed {
+		fatal.Exit(color.Red("Failed to update some scheduled tasks"))
+	}
 
 	deployResults := deploy.Deploy(services, ecsClient)
 	deployFailed := false
@@ -267,7 +326,7 @@ func main() {
 		// If deploy failed that means the new version wasn't even registered on ECS so we only need to rollback ones that succeeded
 		log.Println(color.Red("Failed to create new versions of some services"))
 		log.Println(color.Yellow("Rolling back services that succeeded to prevent inconsistent states"))
-		performRollback(succeededServices, ecsClient)
+		performRollback(succeededServices, scheduledTasks, ebClient, ecsClient)
 	}
 
 	sendStatsdEvents(services, "gehen.deploys.started", "Gehen started a deploy for service %s")
@@ -310,7 +369,7 @@ func main() {
 		log.Println("This means your service failed to boot, or was unable to serve requests.")
 		log.Println("Your next step should be to check the logs for your service to find out why.")
 		log.Println(color.Yellow("Rolling all services back to the previous version"))
-		performRollback(services, ecsClient)
+		performRollback(services, scheduledTasks, ebClient, ecsClient)
 	}
 
 	sendStatsdEvents(services, "gehen.deploys.draining", "Gehen is checking for service drain on %s")

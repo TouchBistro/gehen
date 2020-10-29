@@ -53,6 +53,8 @@ services: # A map of services
   <service-name>: # The name of the ECS service
     cluster: string # The ECS cluster the service is in
     url: string # The URL to use to check that the new version has been deployed
+scheduledTasks: # A map of ECS scheduled tasks
+  <scheduled-task-name>: # The name of the ECS scheduled task
 ```
 
 An example config is provided in [gehen.example.yml](gehen.example.yml).
