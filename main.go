@@ -171,11 +171,9 @@ func performRollback(services []*config.Service, scheduledTasks []*config.Schedu
 	// Also they would have inconsitent versions
 	rollbackScheduledTaskResults := deploy.RollbackScheduledTasks(scheduledTasks, ebClient, ecsClient)
 	rollbackScheduledTasksFailed := false
-	succeededScheduledTasks := make([]*config.ScheduledTask, 0)
 
 	for _, result := range rollbackScheduledTaskResults {
 		if result.Err == nil {
-			succeededScheduledTasks = append(succeededScheduledTasks, result.Task)
 			continue
 		}
 
@@ -273,11 +271,9 @@ func main() {
 	// Update scheduled tasks first so if this fails we don't need to worry about rolling back services
 	updateScheduledTaskResults := deploy.UpdateScheduledTasks(scheduledTasks, ebClient, ecsClient)
 	updateScheduledTasksFailed := false
-	succeededScheduledTasks := make([]*config.ScheduledTask, 0)
 
 	for _, result := range updateScheduledTaskResults {
 		if result.Err == nil {
-			succeededScheduledTasks = append(succeededScheduledTasks, result.Task)
 			continue
 		}
 
