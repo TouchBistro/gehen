@@ -74,7 +74,7 @@ func UpdateScheduledTask(args UpdateScheduledTaskArgs) error {
 		return errors.Wrapf(err, "failed to update targets for scheduled task rule %s", task.Name)
 	}
 
-	if *respPutTargets.FailedEntryCount > 0 {
+	if respPutTargets.FailedEntryCount != nil && *respPutTargets.FailedEntryCount > 0 {
 		for _, e := range respPutTargets.FailedEntries {
 			log.Printf("Failed to update entry: %v\n", *e)
 		}

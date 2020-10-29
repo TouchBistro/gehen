@@ -23,24 +23,37 @@ func TestReadServices(t *testing.T) {
 			URL:     "https://staging.example.touchbistro.io/ping",
 		},
 	}
+	expectedScheduledTasks := []*config.ScheduledTask{
+		{
+			Name:   "weekly-job",
+			Gitsha: gitsha,
+		},
+		{
+			Name:   "monthly-job",
+			Gitsha: gitsha,
+		},
+	}
 
-	services, err := config.ReadServices("testdata/gehen.good.yml", gitsha)
+	services, scheduledTasks, err := config.Read("testdata/gehen.good.yml", gitsha)
 
 	assert.NoError(t, err)
 	assert.ElementsMatch(t, expectedServices, services)
+	assert.ElementsMatch(t, expectedScheduledTasks, scheduledTasks)
 }
 
 func TestReadServicesInvalid(t *testing.T) {
 	gitsha := "da39a3ee5e6b4b0d3255bfef95601890afd80709"
-	services, err := config.ReadServices("testdata/gehen.bad.yml", gitsha)
+	services, scheduledTasks, err := config.Read("testdata/gehen.bad.yml", gitsha)
 
 	assert.Error(t, err)
 	assert.Nil(t, services)
+	assert.Nil(t, scheduledTasks)
 }
 
 func TestNoGehenYaml(t *testing.T) {
-	services, err := config.ReadServices("testdata/gehen.notfound.yml", "")
+	services, scheduledTasks, err := config.Read("testdata/gehen.notfound.yml", "")
 
 	assert.Error(t, err)
 	assert.Nil(t, services)
+	assert.Nil(t, scheduledTasks)
 }

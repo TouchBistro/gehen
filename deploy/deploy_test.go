@@ -31,7 +31,7 @@ func TestDeploy(t *testing.T) {
 		},
 	}
 
-	mockClient := awsecs.NewMockClient(
+	mockClient := awsecs.NewMockECSClient(
 		[]string{
 			"example-production",
 			"example-staging",
@@ -100,7 +100,7 @@ func TestRollback(t *testing.T) {
 		},
 	}
 
-	mockClient := awsecs.NewMockClient(
+	mockClient := awsecs.NewMockECSClient(
 		[]string{
 			"example-production",
 			"example-staging",
@@ -280,7 +280,7 @@ func TestCheckDrain(t *testing.T) {
 		},
 	}
 
-	mockClient := awsecs.NewMockClient(
+	mockClient := awsecs.NewMockECSClient(
 		[]string{
 			"example-production",
 			"example-staging",
@@ -339,7 +339,7 @@ func TestCheckDrainFailed(t *testing.T) {
 		},
 	}
 
-	mockClient := awsecs.NewMockClient(
+	mockClient := awsecs.NewMockECSClient(
 		[]string{
 			"example-production",
 			"example-staging",
@@ -374,6 +374,124 @@ func TestCheckDrainFailed(t *testing.T) {
 	}
 
 	results := deploy.CheckDrained(services, mockClient)
+
+	assert.ElementsMatch(t, expectedResults, results)
+}
+
+func TestUpdateScheduledTasks(t *testing.T) {
+	gitsha := "da39a3ee5e6b4b0d3255bfef95601890afd80709"
+	previousGitsha := "b6589fc6ab0dc82cf12099d1c2d40ab994e8410c"
+	scheduledTasks := []*config.ScheduledTask{
+		{
+			Name:   "weekly-job",
+			Gitsha: gitsha,
+		},
+		{
+			Name:   "monthly-job",
+			Gitsha: gitsha,
+		},
+	}
+
+	mockECSClient := awsecs.NewMockECSClient(
+		[]string{
+			"weekly-job",
+			"monthly-job",
+		},
+		"example-service",
+		previousGitsha,
+	)
+
+	mockEBClient := awsecs.NewMockEventBridgeClient([]string{
+		"weekly-job",
+		"monthly-job",
+	})
+
+	expectedResults := []deploy.ScheduledTaskResult{
+		{
+			Task: &config.ScheduledTask{
+				Name:                      "weekly-job",
+				Gitsha:                    gitsha,
+				PreviousGitsha:            previousGitsha,
+				PreviousTaskDefinitionARN: "arn:aws:ecs:us-east-1:123456:task-definition/weekly-job:1",
+				TaskDefinitionARN:         "arn:aws:ecs:us-east-1:123456:task-definition/weekly-job:2",
+			},
+			Err: nil,
+		},
+		{
+			Task: &config.ScheduledTask{
+				Name:                      "monthly-job",
+				Gitsha:                    gitsha,
+				PreviousGitsha:            previousGitsha,
+				PreviousTaskDefinitionARN: "arn:aws:ecs:us-east-1:123456:task-definition/monthly-job:1",
+				TaskDefinitionARN:         "arn:aws:ecs:us-east-1:123456:task-definition/monthly-job:2",
+			},
+			Err: nil,
+		},
+	}
+
+	results := deploy.UpdateScheduledTasks(scheduledTasks, mockEBClient, mockECSClient)
+
+	assert.ElementsMatch(t, expectedResults, results)
+}
+
+func TestRollbackScheduledTasks(t *testing.T) {
+	gitsha := "da39a3ee5e6b4b0d3255bfef95601890afd80709"
+	previousGitsha := "b6589fc6ab0dc82cf12099d1c2d40ab994e8410c"
+	scheduledTasks := []*config.ScheduledTask{
+		{
+			Name:                      "weekly-job",
+			Gitsha:                    gitsha,
+			PreviousGitsha:            previousGitsha,
+			PreviousTaskDefinitionARN: "arn:aws:ecs:us-east-1:123456:task-definition/weekly-job:1",
+			TaskDefinitionARN:         "arn:aws:ecs:us-east-1:123456:task-definition/weekly-job:2",
+		},
+		{
+			Name:                      "monthly-job",
+			Gitsha:                    gitsha,
+			PreviousGitsha:            previousGitsha,
+			PreviousTaskDefinitionARN: "arn:aws:ecs:us-east-1:123456:task-definition/monthly-job:1",
+			TaskDefinitionARN:         "arn:aws:ecs:us-east-1:123456:task-definition/monthly-job:2",
+		},
+	}
+
+	mockECSClient := awsecs.NewMockECSClient(
+		[]string{
+			"weekly-job",
+			"monthly-job",
+		},
+		"example-service",
+		previousGitsha,
+	)
+
+	mockEBClient := awsecs.NewMockEventBridgeClient([]string{
+		"weekly-job",
+		"monthly-job",
+	})
+
+	expectedResults := []deploy.ScheduledTaskResult{
+		{
+			Task: &config.ScheduledTask{
+				Name:                      "weekly-job",
+				Gitsha:                    gitsha,
+				PreviousGitsha:            previousGitsha,
+				PreviousTaskDefinitionARN: "arn:aws:ecs:us-east-1:123456:task-definition/weekly-job:1",
+				TaskDefinitionARN:         "arn:aws:ecs:us-east-1:123456:task-definition/weekly-job:2",
+			},
+			Err: nil,
+		},
+		{
+			Task: &config.ScheduledTask{
+				Name:                      "monthly-job",
+				Gitsha:                    gitsha,
+				PreviousGitsha:            previousGitsha,
+				PreviousTaskDefinitionARN: "arn:aws:ecs:us-east-1:123456:task-definition/monthly-job:1",
+				TaskDefinitionARN:         "arn:aws:ecs:us-east-1:123456:task-definition/monthly-job:2",
+			},
+			Err: nil,
+		},
+	}
+
+	results := deploy.RollbackScheduledTasks(scheduledTasks, mockEBClient, mockECSClient)
 
 	assert.ElementsMatch(t, expectedResults, results)
 }
