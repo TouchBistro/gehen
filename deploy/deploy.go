@@ -11,6 +11,7 @@ import (
 	"github.com/TouchBistro/gehen/config"
 	"github.com/TouchBistro/goutils/color"
 	"github.com/aws/aws-sdk-go/service/ecs/ecsiface"
+	"github.com/aws/aws-sdk-go/service/eventbridge/eventbridgeiface"
 	"github.com/pkg/errors"
 )
 
@@ -206,6 +207,64 @@ loop:
 			result := Result{s, ErrTimedOut}
 			results = append(results, result)
 		}
+	}
+
+	return results
+}
+
+// ScheduledTaskResult represents the result of a scheduled task action.
+// If the action failed err will be non-nil.
+type ScheduledTaskResult struct {
+	Task *config.ScheduledTask
+	Err  error
+}
+
+// UpdateScheduledTasks will update the ECS scheduled tasks to use the new version of the service.
+func UpdateScheduledTasks(tasks []*config.ScheduledTask, ebClient eventbridgeiface.EventBridgeAPI, ecsClient ecsiface.ECSAPI) []ScheduledTaskResult {
+	resultChan := make(chan ScheduledTaskResult)
+
+	// Update all the tasks concurrently
+	for _, t := range tasks {
+		go func(task *config.ScheduledTask) {
+			err := awsecs.UpdateScheduledTask(awsecs.UpdateScheduledTaskArgs{
+				Task:      task,
+				EBClient:  ebClient,
+				ECSClient: ecsClient,
+			})
+			resultChan <- ScheduledTaskResult{task, err}
+		}(t)
+	}
+
+	// Collect and report the results
+	results := make([]ScheduledTaskResult, len(tasks))
+	for i := 0; i < len(tasks); i++ {
+		results[i] = <-resultChan
+	}
+
+	return results
+}
+
+// RollbackScheduledTasks will change the ECS scheduled tasks to use the previous version of the service.
+func RollbackScheduledTasks(tasks []*config.ScheduledTask, ebClient eventbridgeiface.EventBridgeAPI, ecsClient ecsiface.ECSAPI) []ScheduledTaskResult {
+	resultChan := make(chan ScheduledTaskResult)
+
+	// Rollback all the task concurrently
+	for _, t := range tasks {
+		go func(task *config.ScheduledTask) {
+			err := awsecs.UpdateScheduledTask(awsecs.UpdateScheduledTaskArgs{
+				Task: task,
+				// The func will handle using the correct task def ARN, no need to swap ourselves
+				IsRollback: true,
+				EBClient:   ebClient,
+				ECSClient:  ecsClient,
+			})
+			resultChan <- ScheduledTaskResult{task, err}
+		}(t)
+	}
+
+	results := make([]ScheduledTaskResult, len(tasks))
+	for i := 0; i < len(tasks); i++ {
+		results[i] = <-resultChan
 	}
 
 	return results
