@@ -12,6 +12,7 @@ import (
 	"github.com/TouchBistro/goutils/color"
 	"github.com/TouchBistro/goutils/fatal"
 	"github.com/aws/aws-sdk-go/aws"
+	"github.com/aws/aws-sdk-go/aws/credentials/stscreds"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/ecs"
 	"github.com/aws/aws-sdk-go/service/eventbridge"
@@ -250,7 +251,7 @@ func main() {
 
 	// gehen config, get and validate services
 
-	services, scheduledTasks, err := config.Read(configPath, gitsha)
+	services, scheduledTasks, role, err := config.Read(configPath, gitsha)
 	if err != nil {
 		fatal.ExitErr(err, "Failed to get services from config file")
 	}
@@ -259,12 +260,24 @@ func main() {
 		fatal.Exit("gehen.yml must contain at least one service")
 	}
 
-	// Connect to ECS API
 	sess := session.Must(session.NewSession(&aws.Config{
 		Region: aws.String("us-east-1"),
 	}))
-	ecsClient := ecs.New(sess)
-	ebClient := eventbridge.New(sess)
+
+	// Connect to ECS and EventBridge APIs
+	var ecsClient *ecs.ECS
+	var ebClient *eventbridge.EventBridge
+
+	if role != nil && role.AccountID != "" && role.Name != "" {
+		roleArn := fmt.Sprintf("arn:aws:iam::%v:role/%v", role.AccountID, role.Name)
+		awsConfig := aws.NewConfig().WithCredentials(stscreds.NewCredentials(sess, roleArn))
+
+		ecsClient = ecs.New(sess, awsConfig)
+		ebClient = eventbridge.New(sess, awsConfig)
+	} else {
+		ecsClient = ecs.New(sess)
+		ebClient = eventbridge.New(sess)
+	}
 
 	// DEPLOYMENT ZONE //
 

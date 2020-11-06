@@ -34,26 +34,34 @@ func TestReadServices(t *testing.T) {
 		},
 	}
 
-	services, scheduledTasks, err := config.Read("testdata/gehen.good.yml", gitsha)
+	expectedRole := &config.Role{
+		AccountID: "123456",
+		Name:      "OrganizationAccountAccessRole",
+	}
+
+	services, scheduledTasks, role, err := config.Read("testdata/gehen.good.yml", gitsha)
 
 	assert.NoError(t, err)
 	assert.ElementsMatch(t, expectedServices, services)
 	assert.ElementsMatch(t, expectedScheduledTasks, scheduledTasks)
+	assert.Equal(t, expectedRole, role)
 }
 
 func TestReadServicesInvalid(t *testing.T) {
 	gitsha := "da39a3ee5e6b4b0d3255bfef95601890afd80709"
-	services, scheduledTasks, err := config.Read("testdata/gehen.bad.yml", gitsha)
+	services, scheduledTasks, role, err := config.Read("testdata/gehen.bad.yml", gitsha)
 
 	assert.Error(t, err)
 	assert.Nil(t, services)
 	assert.Nil(t, scheduledTasks)
+	assert.Nil(t, role)
 }
 
 func TestNoGehenYaml(t *testing.T) {
-	services, scheduledTasks, err := config.Read("testdata/gehen.notfound.yml", "")
+	services, scheduledTasks, role, err := config.Read("testdata/gehen.notfound.yml", "")
 
 	assert.Error(t, err)
 	assert.Nil(t, services)
 	assert.Nil(t, scheduledTasks)
+	assert.Nil(t, role)
 }
