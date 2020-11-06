@@ -1,3 +1,5 @@
+role:
+  arn: arn:aws:iam::123456:role/OrganizationAccountAccessRole
 services:
   example-production:
     cluster: arn:aws:ecs:us-east-1:123456:cluster/prod-cluster

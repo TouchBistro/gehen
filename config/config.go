@@ -18,6 +18,12 @@ type scheduledTaskConfig struct{}
 type gehenConfig struct {
 	Services       map[string]serviceConfig       `yaml:"services"`
 	ScheduledTasks map[string]scheduledTaskConfig `yaml:"scheduledTasks"`
+	Role           Role                           `yaml:"role"`
+}
+
+// Role represents an IAM role to assume
+type Role struct {
+	ARN string `yaml:"arn"`
 }
 
 // Service represents a service that can be deployed by gehen.
@@ -45,21 +51,21 @@ type ScheduledTask struct {
 
 // Read reads the config file at the given path and returns
 // a slice of services and scheduled tasks.
-func Read(configPath, gitsha string) ([]*Service, []*ScheduledTask, error) {
+func Read(configPath, gitsha string) ([]*Service, []*ScheduledTask, *Role, error) {
 	if !file.FileOrDirExists(configPath) {
-		return nil, nil, errors.Errorf("No such file %s", configPath)
+		return nil, nil, nil, errors.Errorf("No such file %s", configPath)
 	}
 
 	file, err := os.Open(configPath)
 	if err != nil {
-		return nil, nil, errors.Wrapf(err, "failed to open file %s", configPath)
+		return nil, nil, nil, errors.Wrapf(err, "failed to open file %s", configPath)
 	}
 	defer file.Close()
 
 	var config gehenConfig
 	err = yaml.NewDecoder(file).Decode(&config)
 	if err != nil {
-		return nil, nil, errors.Wrapf(err, "couldn't read yaml file at %s", configPath)
+		return nil, nil, nil, errors.Wrapf(err, "couldn't read yaml file at %s", configPath)
 	}
 
 	services := make([]*Service, 0, len(config.Services))
@@ -82,5 +88,9 @@ func Read(configPath, gitsha string) ([]*Service, []*ScheduledTask, error) {
 		scheduledTasks = append(scheduledTasks, &task)
 	}
 
-	return services, scheduledTasks, nil
+	if config.Role.ARN == "" {
+		return services, scheduledTasks, nil, nil
+	}
+
+	return services, scheduledTasks, &config.Role, nil
 }
