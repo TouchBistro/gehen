@@ -23,8 +23,7 @@ type gehenConfig struct {
 
 // Role represents an IAM role to assume
 type Role struct {
-	AccountID string `yaml:"accountId"`
-	Name      string `yaml:"name"`
+	ARN string `yaml:"arn"`
 }
 
 // Service represents a service that can be deployed by gehen.
@@ -89,10 +88,9 @@ func Read(configPath, gitsha string) ([]*Service, []*ScheduledTask, *Role, error
 		scheduledTasks = append(scheduledTasks, &task)
 	}
 
-	role := &Role{
-		AccountID: config.Role.AccountID,
-		Name:      config.Role.Name,
+	if config.Role.ARN == "" {
+		return services, scheduledTasks, nil, nil
 	}
 
-	return services, scheduledTasks, role, nil
+	return services, scheduledTasks, &config.Role, nil
 }

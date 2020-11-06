@@ -268,9 +268,8 @@ func main() {
 	var ecsClient *ecs.ECS
 	var ebClient *eventbridge.EventBridge
 
-	if role != nil && role.AccountID != "" && role.Name != "" {
-		roleArn := fmt.Sprintf("arn:aws:iam::%v:role/%v", role.AccountID, role.Name)
-		awsConfig := aws.NewConfig().WithCredentials(stscreds.NewCredentials(sess, roleArn))
+	if role != nil {
+		awsConfig := aws.NewConfig().WithCredentials(stscreds.NewCredentials(sess, role.ARN))
 
 		ecsClient = ecs.New(sess, awsConfig)
 		ebClient = eventbridge.New(sess, awsConfig)
