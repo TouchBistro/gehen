@@ -2,15 +2,22 @@ package config
 
 import (
 	"os"
+	"strings"
 
 	"github.com/TouchBistro/goutils/file"
 	"github.com/pkg/errors"
 	"gopkg.in/yaml.v2"
 )
 
+const (
+	UpdateStrategyCurrent = "current"
+	UpdateStrategyLatest  = "latest"
+)
+
 type serviceConfig struct {
-	Cluster string `yaml:"cluster"`
-	URL     string `yaml:"url"`
+	Cluster        string `yaml:"cluster"`
+	URL            string `yaml:"url"`
+	UpdateStrategy string `yaml:"updateStrategy"`
 }
 
 type scheduledTaskConfig struct{}
@@ -28,10 +35,11 @@ type Role struct {
 
 // Service represents a service that can be deployed by gehen.
 type Service struct {
-	Name    string
-	Gitsha  string
-	Cluster string
-	URL     string
+	Name           string
+	Gitsha         string
+	Cluster        string
+	URL            string
+	UpdateStrategy string
 	// The Git SHA of the previous deployment. Used by Gehen for rollback purposes.
 	// Please do not modify this value.
 	PreviousGitsha            string
@@ -70,11 +78,22 @@ func Read(configPath, gitsha string) ([]*Service, []*ScheduledTask, *Role, error
 
 	services := make([]*Service, 0, len(config.Services))
 	for name, s := range config.Services {
+		updateStrategy := strings.ToLower(s.UpdateStrategy)
+		switch updateStrategy {
+		case UpdateStrategyCurrent, UpdateStrategyLatest:
+		case "":
+			// Default is current
+			updateStrategy = UpdateStrategyCurrent
+		default:
+			err := errors.Errorf(`services: %s: invalid updateStrategy %q, must be "current" or "latest"`, name, s.UpdateStrategy)
+			return nil, nil, nil, err
+		}
 		service := Service{
-			Name:    name,
-			Gitsha:  gitsha,
-			Cluster: s.Cluster,
-			URL:     s.URL,
+			Name:           name,
+			Gitsha:         gitsha,
+			Cluster:        s.Cluster,
+			URL:            s.URL,
+			UpdateStrategy: updateStrategy,
 		}
 		services = append(services, &service)
 	}

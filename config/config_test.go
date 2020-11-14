@@ -11,16 +11,18 @@ func TestReadServicesWithRole(t *testing.T) {
 	gitsha := "da39a3ee5e6b4b0d3255bfef95601890afd80709"
 	expectedServices := []*config.Service{
 		{
-			Name:    "example-production",
-			Gitsha:  gitsha,
-			Cluster: "arn:aws:ecs:us-east-1:123456:cluster/prod-cluster",
-			URL:     "https://example.touchbistro.io/ping",
+			Name:           "example-production",
+			Gitsha:         gitsha,
+			Cluster:        "arn:aws:ecs:us-east-1:123456:cluster/prod-cluster",
+			URL:            "https://example.touchbistro.io/ping",
+			UpdateStrategy: config.UpdateStrategyLatest,
 		},
 		{
-			Name:    "example-staging",
-			Gitsha:  gitsha,
-			Cluster: "arn:aws:ecs:us-east-1:123456:cluster/non-prod-cluster",
-			URL:     "https://staging.example.touchbistro.io/ping",
+			Name:           "example-staging",
+			Gitsha:         gitsha,
+			Cluster:        "arn:aws:ecs:us-east-1:123456:cluster/non-prod-cluster",
+			URL:            "https://staging.example.touchbistro.io/ping",
+			UpdateStrategy: config.UpdateStrategyCurrent,
 		},
 	}
 	expectedScheduledTasks := []*config.ScheduledTask{
@@ -50,16 +52,18 @@ func TestReadServicesWithoutRole(t *testing.T) {
 	gitsha := "da39a3ee5e6b4b0d3255bfef95601890afd80709"
 	expectedServices := []*config.Service{
 		{
-			Name:    "example-production",
-			Gitsha:  gitsha,
-			Cluster: "arn:aws:ecs:us-east-1:123456:cluster/prod-cluster",
-			URL:     "https://example.touchbistro.io/ping",
+			Name:           "example-production",
+			Gitsha:         gitsha,
+			Cluster:        "arn:aws:ecs:us-east-1:123456:cluster/prod-cluster",
+			URL:            "https://example.touchbistro.io/ping",
+			UpdateStrategy: config.UpdateStrategyCurrent,
 		},
 		{
-			Name:    "example-staging",
-			Gitsha:  gitsha,
-			Cluster: "arn:aws:ecs:us-east-1:123456:cluster/non-prod-cluster",
-			URL:     "https://staging.example.touchbistro.io/ping",
+			Name:           "example-staging",
+			Gitsha:         gitsha,
+			Cluster:        "arn:aws:ecs:us-east-1:123456:cluster/non-prod-cluster",
+			URL:            "https://staging.example.touchbistro.io/ping",
+			UpdateStrategy: config.UpdateStrategyCurrent,
 		},
 	}
 	expectedScheduledTasks := []*config.ScheduledTask{

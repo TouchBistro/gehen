@@ -3,6 +3,7 @@ package awsecs
 import (
 	"fmt"
 	"log"
+	"regexp"
 	"strings"
 
 	"github.com/TouchBistro/gehen/config"
@@ -40,21 +41,17 @@ func Deploy(service *config.Service, ecsClient ecsiface.ECSAPI) error {
 	taskDefARN := *respDescribeServices.Services[0].TaskDefinition
 	log.Printf("Found current task definition: %v\n", taskDefARN)
 
-	updateTaskDefRes, err := updateTaskDef(taskDefARN, service.Gitsha, ecsClient)
+	updateTaskDefRes, err := updateTaskDef(taskDefARN, service.Gitsha, service.UpdateStrategy, ecsClient)
 	if err != nil {
 		return errors.Wrapf(err, "failed to update task def for service: %s", service.Name)
 	}
 
-	log.Printf(
-		"Registered new task definition %s, updating service %s\n",
-		color.Cyan(updateTaskDefRes.newTaskDefARN),
-		color.Cyan(service.Name),
-	)
+	log.Printf("Updating service %s\n", color.Cyan(service.Name))
 
 	// Set dynamic service values
 	// Save previous Git SHA in case we need to rollback later
 	service.PreviousGitsha = updateTaskDefRes.previousGitsha
-	service.PreviousTaskDefinitionARN = updateTaskDefRes.previousTaskDefARN
+	service.PreviousTaskDefinitionARN = taskDefARN
 	service.TaskDefinitionARN = updateTaskDefRes.newTaskDefARN
 	service.Tags = updateTaskDefRes.dockerTags
 
@@ -107,21 +104,32 @@ func CheckDrain(service *config.Service, ecsClient ecsiface.ECSAPI) (bool, error
 }
 
 type updateTaskDefResult struct {
-	previousTaskDefARN string
-	newTaskDefARN      string
-	previousGitsha     string
-	dockerTags         []string
+	newTaskDefARN  string
+	previousGitsha string
+	dockerTags     []string
 }
 
 // updateTaskDef creates a new task def revision with the container image updated to use the new Git SHA.
 // It returns the new ARN and previous Git SHA.
-func updateTaskDef(taskDefARN, gitsha string, ecsClient ecsiface.ECSAPI) (updateTaskDefResult, error) {
+func updateTaskDef(taskDefARN, gitsha, updateStrategy string, ecsClient ecsiface.ECSAPI) (updateTaskDefResult, error) {
+	taskDefName := taskDefARN
+	if updateStrategy == config.UpdateStrategyLatest {
+		// If latest parse the family name from the ARN so we can look up the latest revision
+		// parse arn for family name
+		r := regexp.MustCompile(`arn:aws:ecs:[^:\n]*:[^:\n]*:task-definition\/([^:\n]*):\d+`)
+		matches := r.FindStringSubmatch(taskDefARN)
+		if matches == nil {
+			return updateTaskDefResult{}, errors.Errorf("unable to parse task def family: %s", taskDefARN)
+		}
+		taskDefName = matches[1]
+	}
+
 	// Use resolved resource info to grab existing task def
 	respDescribeTaskDef, err := ecsClient.DescribeTaskDefinition(&ecs.DescribeTaskDefinitionInput{
-		TaskDefinition: &taskDefARN,
+		TaskDefinition: &taskDefName,
 	})
 	if err != nil {
-		return updateTaskDefResult{}, errors.Wrapf(err, "failed to get task definition: %s", taskDefARN)
+		return updateTaskDefResult{}, errors.Wrapf(err, "failed to get task definition: %s", taskDefName)
 	}
 
 	// Convert API output to be ready to update task.
@@ -143,6 +151,7 @@ func updateTaskDef(taskDefARN, gitsha string, ecsClient ecsiface.ECSAPI) (update
 	}
 
 	previousGitsha := ""
+	shouldUpdate := false
 
 	// Update each container in task def to use same repo with new tag/sha
 	for i, container := range newTaskInput.ContainerDefinitions {
@@ -153,6 +162,13 @@ func updateTaskDef(taskDefARN, gitsha string, ecsClient ecsiface.ECSAPI) (update
 			// Tag is the last element which is the SHA
 			previousGitsha = t[len(t)-1]
 		}
+
+		// Only update if we find an existing image that is different from the new gitsha
+		if gitsha == previousGitsha {
+			continue
+		}
+
+		shouldUpdate = true
 
 		// Get new image by using new SHA
 		newImage := fmt.Sprintf("%s:%s", strings.Join(t[:len(t)-1], ""), gitsha)
@@ -167,16 +183,27 @@ func updateTaskDef(taskDefARN, gitsha string, ecsClient ecsiface.ECSAPI) (update
 		tags = append(tags, newTag)
 	}
 
+	if !shouldUpdate {
+		return updateTaskDefResult{
+			// This might still be different if UpdateStrategyLatest was used
+			newTaskDefARN:  *taskDef.TaskDefinitionArn,
+			previousGitsha: previousGitsha,
+			dockerTags:     tags,
+		}, nil
+	}
+
 	// Create new task def so we can update service to use it
 	respRegisterTaskDef, err := ecsClient.RegisterTaskDefinition(&newTaskInput)
 	if err != nil {
 		return updateTaskDefResult{}, errors.Wrapf(err, "cannot register new task definition for %s", *newTaskInput.Family)
 	}
 
+	newTaskDefArn := *respRegisterTaskDef.TaskDefinition.TaskDefinitionArn
+	log.Printf("Registered new task definition %s\n", color.Cyan(newTaskDefArn))
+
 	return updateTaskDefResult{
-		previousTaskDefARN: *taskDef.TaskDefinitionArn,
-		newTaskDefARN:      *respRegisterTaskDef.TaskDefinition.TaskDefinitionArn,
-		previousGitsha:     previousGitsha,
-		dockerTags:         tags,
+		newTaskDefARN:  newTaskDefArn,
+		previousGitsha: previousGitsha,
+		dockerTags:     tags,
 	}, nil
 }

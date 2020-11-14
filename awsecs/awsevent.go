@@ -45,7 +45,7 @@ func UpdateScheduledTask(args UpdateScheduledTaskArgs) error {
 		// Create a new revision of the task def using the new git sha
 		taskDefARN := *awsTarget.EcsParameters.TaskDefinitionArn
 		log.Printf("Found current task definition: %s\n", taskDefARN)
-		updateTaskDefRes, err := updateTaskDef(taskDefARN, task.Gitsha, args.ECSClient)
+		updateTaskDefRes, err := updateTaskDef(taskDefARN, task.Gitsha, config.UpdateStrategyCurrent, args.ECSClient)
 		if err != nil {
 			return errors.Wrapf(err, "failed to update task def for scheduled task: %s", task.Name)
 		}
@@ -59,7 +59,7 @@ func UpdateScheduledTask(args UpdateScheduledTaskArgs) error {
 
 		// Set dynamic task values
 		task.PreviousGitsha = updateTaskDefRes.previousGitsha
-		task.PreviousTaskDefinitionARN = updateTaskDefRes.previousTaskDefARN
+		task.PreviousTaskDefinitionARN = taskDefARN
 		task.TaskDefinitionARN = updateTaskDefRes.newTaskDefARN
 	}
 

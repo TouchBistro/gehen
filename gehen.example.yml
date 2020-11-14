@@ -4,8 +4,10 @@ services:
   example-production:
     cluster: arn:aws:ecs:us-east-1:123456:cluster/prod-cluster
     url: https://example.touchbistro.io/ping
+    updateStrategy: current
   example-staging:
     cluster: arn:aws:ecs:us-east-1:123456:cluster/non-prod-cluster
     url: https://staging.example.touchbistro.io/ping
+    updateStrategy: latest
 scheduledTasks:
   example-job:
