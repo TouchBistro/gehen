@@ -74,6 +74,66 @@ func TestDeploy(t *testing.T) {
 	assert.ElementsMatch(t, expectedResults, results)
 }
 
+func TestDeployNoNewTaskDef(t *testing.T) {
+	gitsha := "da39a3ee5e6b4b0d3255bfef95601890afd80709"
+	services := []*config.Service{
+		{
+			Name:    "example-production",
+			Gitsha:  gitsha,
+			Cluster: "arn:aws:ecs:us-east-1:123456:cluster/prod-cluster",
+			URL:     "https://example.touchbistro.io/ping",
+		},
+		{
+			Name:    "example-staging",
+			Gitsha:  gitsha,
+			Cluster: "arn:aws:ecs:us-east-1:123456:cluster/non-prod-cluster",
+			URL:     "https://staging.example.touchbistro.io/ping",
+		},
+	}
+
+	mockClient := awsecs.NewMockECSClient(
+		[]string{
+			"example-production",
+			"example-staging",
+		},
+		"example-service",
+		gitsha,
+	)
+
+	expectedResults := []deploy.Result{
+		{
+			Service: &config.Service{
+				Name:                      "example-production",
+				Gitsha:                    gitsha,
+				Cluster:                   "arn:aws:ecs:us-east-1:123456:cluster/prod-cluster",
+				URL:                       "https://example.touchbistro.io/ping",
+				PreviousGitsha:            gitsha,
+				PreviousTaskDefinitionARN: "arn:aws:ecs:us-east-1:123456:task-definition/example-production:1",
+				TaskDefinitionARN:         "arn:aws:ecs:us-east-1:123456:task-definition/example-production:1",
+				Tags:                      []string{},
+			},
+			Err: nil,
+		},
+		{
+			Service: &config.Service{
+				Name:                      "example-staging",
+				Gitsha:                    gitsha,
+				Cluster:                   "arn:aws:ecs:us-east-1:123456:cluster/non-prod-cluster",
+				URL:                       "https://staging.example.touchbistro.io/ping",
+				PreviousGitsha:            gitsha,
+				PreviousTaskDefinitionARN: "arn:aws:ecs:us-east-1:123456:task-definition/example-staging:1",
+				TaskDefinitionARN:         "arn:aws:ecs:us-east-1:123456:task-definition/example-staging:1",
+				Tags:                      []string{},
+			},
+			Err: nil,
+		},
+	}
+
+	results := deploy.Deploy(services, mockClient)
+
+	assert.ElementsMatch(t, expectedResults, results)
+}
+
 func TestRollback(t *testing.T) {
 	gitsha := "da39a3ee5e6b4b0d3255bfef95601890afd80709"
 	previousGitsha := "b6589fc6ab0dc82cf12099d1c2d40ab994e8410c"
