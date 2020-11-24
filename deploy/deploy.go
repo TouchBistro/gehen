@@ -277,7 +277,7 @@ func fetchRevisionSha(url string) (string, error) {
 	}
 
 	if err != nil {
-		return "", errors.Errorf("Failed to HTTP GET %s", url)
+		return "", errors.Wrapf(err, "Failed to HTTP GET %s", url)
 	}
 
 	// Check status
