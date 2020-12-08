@@ -102,6 +102,9 @@ func CheckDrain(service *config.Service, ecsClient ecsiface.ECSAPI) (bool, error
 	for _, deployment := range awsService.Deployments {
 		expectedTaskDefARN := service.TaskDefinitionARN
 		if expectedTaskDefARN == "" {
+			// If no task def arn set for the service, fallback to the one present on AWS
+			// this should work since that is set by calls to UpdateService, so it should be
+			// the desired one for new deploys
 			expectedTaskDefARN = *awsService.TaskDefinition
 		}
 
