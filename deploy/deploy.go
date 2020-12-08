@@ -26,6 +26,9 @@ var (
 // for a service to deploy or drain.
 var ErrTimedOut = errors.New("deploy: timed out while checking for event")
 
+// ErrNoDeployCheckURL is returned by CheckDeployed if the service has no URL set.
+var ErrNoDeployCheckURL = errors.New("deploy: service has no URL to check deployment")
+
 // Result represents the result of a deploy action.
 // If the action failed err will be non-nil.
 type Result struct {
@@ -99,10 +102,16 @@ func Rollback(services []*config.Service, ecsClient ecsiface.ECSAPI) []Result {
 // CheckDeployed keeps pinging the services until it sees the new version has been deployed
 // or it times out. If a service timed out Result.err will be ErrTimedOut.
 func CheckDeployed(services []*config.Service) []Result {
-	successChan := make(chan *config.Service)
+	resultChan := make(chan Result)
 
 	for _, s := range services {
 		go func(service *config.Service) {
+			// If service has no URL set, skip deploy check
+			if service.URL == "" {
+				resultChan <- Result{service, ErrNoDeployCheckURL}
+				return
+			}
+
 			log.Printf("Checking %s for newly deployed version of %s\n", color.Blue(service.URL), color.Cyan(service.Name))
 
 			for {
@@ -117,38 +126,42 @@ func CheckDeployed(services []*config.Service) []Result {
 
 				log.Printf("Got %s from %s\n", color.Magenta(fetchedSha), color.Blue(service.URL))
 				if len(fetchedSha) > 7 && strings.HasPrefix(service.Gitsha, fetchedSha) {
-					successChan <- service
+					resultChan <- Result{Service: service}
 					return
 				}
 			}
 		}(s)
 	}
 
-	// Set of service names that succeeded
-	succeededServices := make(map[string]bool)
+	// Set of service names that completed the deploy check
+	completedServices := make(map[string]bool)
+	var results []Result
 
 loop:
 	for i := 0; i < len(services); i++ {
 		select {
-		case service := <-successChan:
-			log.Printf("Traffic showing version %s on %s, waiting for old versions to stop...\n", color.Green(service.Gitsha), color.Cyan(service.Name))
-			succeededServices[service.Name] = true
+		case result := <-resultChan:
+			if result.Err != nil {
+				log.Printf(
+					"Traffic showing version %s on %s, waiting for old versions to stop...\n",
+					color.Green(result.Service.Gitsha),
+					color.Cyan(result.Service.Name),
+				)
+			}
+			completedServices[result.Service.Name] = true
+			results = append(results, result)
 		case <-time.After(timeoutDuration):
 			// Stop looping, anything that didn't succeed has now failed
 			break loop
 		}
 	}
 
-	results := make([]Result, len(services))
-	for i, s := range services {
-		result := Result{Service: s}
-
-		succeeded := succeededServices[s.Name]
-		if !succeeded {
-			result.Err = ErrTimedOut
+	// Figure out which, if any, services timed out
+	for _, s := range services {
+		completed := completedServices[s.Name]
+		if !completed {
+			results = append(results, Result{s, ErrTimedOut})
 		}
-
-		results[i] = result
 	}
 
 	return results

@@ -348,7 +348,7 @@ func main() {
 	checkDeployedFailed := false
 
 	for _, result := range checkDeployedResults {
-		if result.Err == nil {
+		if result.Err == nil || result.Err == deploy.ErrNoDeployCheckURL {
 			continue
 		}
 

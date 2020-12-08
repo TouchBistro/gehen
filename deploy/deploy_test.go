@@ -318,6 +318,45 @@ func TestCheckDeployFailed(t *testing.T) {
 	assert.ElementsMatch(t, expectedResults, results)
 }
 
+func TestCheckDeployedSkip(t *testing.T) {
+	deploy.TimeoutDuration(3 * time.Second)
+	deploy.CheckIntervalDuration(250 * time.Millisecond)
+
+	gitsha := "da39a3ee5e6b4b0d3255bfef95601890afd80709"
+
+	services := []*config.Service{
+		{
+			Name:   "example-production",
+			Gitsha: gitsha,
+		},
+		{
+			Name:   "example-staging",
+			Gitsha: gitsha,
+		},
+	}
+
+	expectedResults := []deploy.Result{
+		{
+			Service: &config.Service{
+				Name:   "example-production",
+				Gitsha: gitsha,
+			},
+			Err: deploy.ErrNoDeployCheckURL,
+		},
+		{
+			Service: &config.Service{
+				Name:   "example-staging",
+				Gitsha: gitsha,
+			},
+			Err: deploy.ErrNoDeployCheckURL,
+		},
+	}
+
+	results := deploy.CheckDeployed(services)
+
+	assert.ElementsMatch(t, expectedResults, results)
+}
+
 func TestCheckDrain(t *testing.T) {
 	deploy.TimeoutDuration(3 * time.Second)
 	deploy.CheckIntervalDuration(250 * time.Millisecond)
