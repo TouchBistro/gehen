@@ -57,17 +57,27 @@ Gehen is configured through a `gehen.yml` file. This contains the list of ECS se
 The schema is as follows:
 
 ```yaml
+updateStrategy: current | latest | none # Which task definition revision should be used
 services: # A map of services
   <service-name>: # The name of the ECS service
     cluster: string # The ECS cluster the service is in
     url: string # The URL to use to check that the new version has been deployed
-    updateStrategy: current | latest # Which task definition revision should be used
 scheduledTasks: # A map of ECS scheduled tasks
   <scheduled-task-name>: # The name of the ECS scheduled task
 timeoutMinutes: int # How many minutes to wait for the deploy check and drain check
 ```
 
 An example config is provided in [gehen.example.yml](gehen.example.yml).
+
+### `updateStrategy`
+
+This field determines how services are updated.
+
+The possible values are:
+
+- `current`: Create a new task definition based off the revision the service is currently using.
+- `latest`: Create a new task definition based off the latest revision available.
+- `none`: Disable updating services. This prevents Gehen from deploying a new version of the service.
 
 ## Contributing
 

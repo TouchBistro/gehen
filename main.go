@@ -311,38 +311,41 @@ func main() {
 		fatal.Exit(color.Red("Failed to update some scheduled tasks"))
 	}
 
-	deployResults := deploy.Deploy(parsedConfig.Services, ecsClient)
-	deployFailed := false
-	succeededServices := make([]*config.Service, 0)
+	deployEnabled := parsedConfig.UpdateStrategy != config.UpdateStrategyNone
+	if deployEnabled {
+		deployResults := deploy.Deploy(parsedConfig.Services, ecsClient)
+		deployFailed := false
+		succeededServices := make([]*config.Service, 0)
 
-	for _, result := range deployResults {
-		if result.Err == nil {
-			succeededServices = append(succeededServices, result.Service)
-			continue
+		for _, result := range deployResults {
+			if result.Err == nil {
+				succeededServices = append(succeededServices, result.Service)
+				continue
+			}
+
+			deployFailed = true
+			log.Printf(
+				"Failed to create new deployment to version %s for %s",
+				color.Magenta(result.Service.Gitsha),
+				color.Cyan(result.Service.Name),
+			)
+			log.Printf("Error: %v", result.Err)
+
+			if useSentry {
+				sentry.CaptureException(result.Err)
+			}
 		}
 
-		deployFailed = true
-		log.Printf(
-			"Failed to create new deployment to version %s for %s",
-			color.Magenta(result.Service.Gitsha),
-			color.Cyan(result.Service.Name),
-		)
-		log.Printf("Error: %v", result.Err)
-
-		if useSentry {
-			sentry.CaptureException(result.Err)
+		if deployFailed {
+			// If deploying failed we need to rollback all services that succeeded so that they aren't in inconsitent states
+			// If deploy failed that means the new version wasn't even registered on ECS so we only need to rollback ones that succeeded
+			log.Println(color.Red("Failed to create new versions of some services"))
+			log.Println(color.Yellow("Rolling back services that succeeded to prevent inconsistent states"))
+			performRollback(succeededServices, parsedConfig.ScheduledTasks, ebClient, ecsClient)
 		}
-	}
 
-	if deployFailed {
-		// If deploying failed we need to rollback all services that succeeded so that they aren't in inconsitent states
-		// If deploy failed that means the new version wasn't even registered on ECS so we only need to rollback ones that succeeded
-		log.Println(color.Red("Failed to create new versions of some services"))
-		log.Println(color.Yellow("Rolling back services that succeeded to prevent inconsistent states"))
-		performRollback(succeededServices, parsedConfig.ScheduledTasks, ebClient, ecsClient)
+		sendStatsdEvents(parsedConfig.Services, "gehen.deploys.started", "Gehen started a deploy for service %s")
 	}
-
-	sendStatsdEvents(parsedConfig.Services, "gehen.deploys.started", "Gehen started a deploy for service %s")
 
 	checkDeployedResults := deploy.CheckDeployed(parsedConfig.Services)
 	checkDeployedFailed := false
@@ -381,6 +384,11 @@ func main() {
 		log.Println(color.Red("Some services failed deployment"))
 		log.Println("This means your service failed to boot, or was unable to serve requests.")
 		log.Println("Your next step should be to check the logs for your service to find out why.")
+
+		if !deployEnabled {
+			fatal.Exit("❌ Deployment failed")
+		}
+
 		log.Println(color.Yellow("Rolling all services back to the previous version"))
 		performRollback(parsedConfig.Services, parsedConfig.ScheduledTasks, ebClient, ecsClient)
 	}

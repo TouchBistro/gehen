@@ -22,7 +22,7 @@ func TestReadServicesWithRole(t *testing.T) {
 			Gitsha:         gitsha,
 			Cluster:        "arn:aws:ecs:us-east-1:123456:cluster/non-prod-cluster",
 			URL:            "https://staging.example.touchbistro.io/ping",
-			UpdateStrategy: config.UpdateStrategyCurrent,
+			UpdateStrategy: config.UpdateStrategyLatest,
 		},
 	}
 	expectedScheduledTasks := []*config.ScheduledTask{

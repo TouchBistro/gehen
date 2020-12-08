@@ -108,6 +108,7 @@ func CheckDeployed(services []*config.Service) []Result {
 		go func(service *config.Service) {
 			// If service has no URL set, skip deploy check
 			if service.URL == "" {
+				log.Printf("Skipping deploy check for %s because no URL is set", color.Cyan(service.Name))
 				resultChan <- Result{service, ErrNoDeployCheckURL}
 				return
 			}

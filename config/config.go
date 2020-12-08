@@ -12,12 +12,12 @@ import (
 const (
 	UpdateStrategyCurrent = "current"
 	UpdateStrategyLatest  = "latest"
+	UpdateStrategyNone    = "none"
 )
 
 type serviceConfig struct {
-	Cluster        string `yaml:"cluster"`
-	URL            string `yaml:"url"`
-	UpdateStrategy string `yaml:"updateStrategy"`
+	Cluster string `yaml:"cluster"`
+	URL     string `yaml:"url"`
 }
 
 type scheduledTaskConfig struct{}
@@ -27,6 +27,7 @@ type gehenConfig struct {
 	ScheduledTasks map[string]scheduledTaskConfig `yaml:"scheduledTasks"`
 	Role           Role                           `yaml:"role"`
 	TimeoutMinutes int                            `yaml:"timeoutMinutes"`
+	UpdateStrategy string                         `yaml:"updateStrategy"`
 }
 
 // Role represents an IAM role to assume
@@ -63,6 +64,7 @@ type ParsedConfig struct {
 	ScheduledTasks []*ScheduledTask
 	Role           *Role
 	TimeoutMinutes int
+	UpdateStrategy string
 }
 
 // Read reads the config file at the given path and returns
@@ -84,18 +86,19 @@ func Read(configPath, gitsha string) (ParsedConfig, error) {
 		return ParsedConfig{}, errors.Wrapf(err, "couldn't read yaml file at %s", configPath)
 	}
 
-	services := make([]*Service, 0, len(config.Services))
+	updateStrategy := strings.ToLower(config.UpdateStrategy)
+	switch updateStrategy {
+	case UpdateStrategyCurrent, UpdateStrategyLatest, UpdateStrategyNone:
+	case "":
+		// Default is current
+		updateStrategy = UpdateStrategyCurrent
+	default:
+		err := errors.Errorf(`config: invalid updateStrategy %q, must be "current", "latest" or "none`, config.UpdateStrategy)
+		return ParsedConfig{}, err
+	}
+
+	var services []*Service
 	for name, s := range config.Services {
-		updateStrategy := strings.ToLower(s.UpdateStrategy)
-		switch updateStrategy {
-		case UpdateStrategyCurrent, UpdateStrategyLatest:
-		case "":
-			// Default is current
-			updateStrategy = UpdateStrategyCurrent
-		default:
-			err := errors.Errorf(`services: %s: invalid updateStrategy %q, must be "current" or "latest"`, name, s.UpdateStrategy)
-			return ParsedConfig{}, err
-		}
 		service := Service{
 			Name:           name,
 			Gitsha:         gitsha,
@@ -106,7 +109,7 @@ func Read(configPath, gitsha string) (ParsedConfig, error) {
 		services = append(services, &service)
 	}
 
-	scheduledTasks := make([]*ScheduledTask, 0, len(config.ScheduledTasks))
+	var scheduledTasks []*ScheduledTask
 	for name := range config.ScheduledTasks {
 		task := ScheduledTask{
 			Name:   name,
@@ -119,6 +122,7 @@ func Read(configPath, gitsha string) (ParsedConfig, error) {
 		Services:       services,
 		ScheduledTasks: scheduledTasks,
 		TimeoutMinutes: config.TimeoutMinutes,
+		UpdateStrategy: updateStrategy,
 	}
 
 	if config.Role.ARN != "" {

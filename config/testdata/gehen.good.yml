@@ -4,7 +4,6 @@ services:
   example-production:
     cluster: arn:aws:ecs:us-east-1:123456:cluster/prod-cluster
     url: https://example.touchbistro.io/ping
-    updateStrategy: latest
   example-staging:
     cluster: arn:aws:ecs:us-east-1:123456:cluster/non-prod-cluster
     url: https://staging.example.touchbistro.io/ping
@@ -12,3 +11,4 @@ scheduledTasks:
   weekly-job:
   monthly-job:
 timeoutMinutes: 5
+updateStrategy: latest
