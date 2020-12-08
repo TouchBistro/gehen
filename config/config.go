@@ -26,6 +26,7 @@ type gehenConfig struct {
 	Services       map[string]serviceConfig       `yaml:"services"`
 	ScheduledTasks map[string]scheduledTaskConfig `yaml:"scheduledTasks"`
 	Role           Role                           `yaml:"role"`
+	TimeoutMinutes int                            `yaml:"timeoutMinutes"`
 }
 
 // Role represents an IAM role to assume
@@ -57,23 +58,30 @@ type ScheduledTask struct {
 	PreviousTaskDefinitionARN string
 }
 
+type ParsedConfig struct {
+	Services       []*Service
+	ScheduledTasks []*ScheduledTask
+	Role           *Role
+	TimeoutMinutes int
+}
+
 // Read reads the config file at the given path and returns
 // a slice of services and scheduled tasks.
-func Read(configPath, gitsha string) ([]*Service, []*ScheduledTask, *Role, error) {
+func Read(configPath, gitsha string) (ParsedConfig, error) {
 	if !file.FileOrDirExists(configPath) {
-		return nil, nil, nil, errors.Errorf("No such file %s", configPath)
+		return ParsedConfig{}, errors.Errorf("no such file %s", configPath)
 	}
 
 	file, err := os.Open(configPath)
 	if err != nil {
-		return nil, nil, nil, errors.Wrapf(err, "failed to open file %s", configPath)
+		return ParsedConfig{}, errors.Wrapf(err, "failed to open file %s", configPath)
 	}
 	defer file.Close()
 
 	var config gehenConfig
 	err = yaml.NewDecoder(file).Decode(&config)
 	if err != nil {
-		return nil, nil, nil, errors.Wrapf(err, "couldn't read yaml file at %s", configPath)
+		return ParsedConfig{}, errors.Wrapf(err, "couldn't read yaml file at %s", configPath)
 	}
 
 	services := make([]*Service, 0, len(config.Services))
@@ -86,7 +94,7 @@ func Read(configPath, gitsha string) ([]*Service, []*ScheduledTask, *Role, error
 			updateStrategy = UpdateStrategyCurrent
 		default:
 			err := errors.Errorf(`services: %s: invalid updateStrategy %q, must be "current" or "latest"`, name, s.UpdateStrategy)
-			return nil, nil, nil, err
+			return ParsedConfig{}, err
 		}
 		service := Service{
 			Name:           name,
@@ -107,9 +115,15 @@ func Read(configPath, gitsha string) ([]*Service, []*ScheduledTask, *Role, error
 		scheduledTasks = append(scheduledTasks, &task)
 	}
 
-	if config.Role.ARN == "" {
-		return services, scheduledTasks, nil, nil
+	parsedConfig := ParsedConfig{
+		Services:       services,
+		ScheduledTasks: scheduledTasks,
+		TimeoutMinutes: config.TimeoutMinutes,
 	}
 
-	return services, scheduledTasks, &config.Role, nil
+	if config.Role.ARN != "" {
+		parsedConfig.Role = &config.Role
+	}
+
+	return parsedConfig, nil
 }

@@ -11,3 +11,4 @@ services:
     updateStrategy: latest
 scheduledTasks:
   example-job:
+timeoutMinutes: 5

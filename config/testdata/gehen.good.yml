@@ -11,3 +11,4 @@ services:
 scheduledTasks:
   weekly-job:
   monthly-job:
+timeoutMinutes: 5
