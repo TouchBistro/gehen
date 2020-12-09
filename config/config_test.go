@@ -22,7 +22,7 @@ func TestReadServicesWithRole(t *testing.T) {
 			Gitsha:         gitsha,
 			Cluster:        "arn:aws:ecs:us-east-1:123456:cluster/non-prod-cluster",
 			URL:            "https://staging.example.touchbistro.io/ping",
-			UpdateStrategy: config.UpdateStrategyCurrent,
+			UpdateStrategy: config.UpdateStrategyLatest,
 		},
 	}
 	expectedScheduledTasks := []*config.ScheduledTask{
@@ -40,12 +40,13 @@ func TestReadServicesWithRole(t *testing.T) {
 		ARN: "arn:aws:iam::123456:role/OrganizationAccountAccessRole",
 	}
 
-	services, scheduledTasks, role, err := config.Read("testdata/gehen.good.yml", gitsha)
+	parsedConfig, err := config.Read("testdata/gehen.good.yml", gitsha)
 
 	assert.NoError(t, err)
-	assert.ElementsMatch(t, expectedServices, services)
-	assert.ElementsMatch(t, expectedScheduledTasks, scheduledTasks)
-	assert.Equal(t, expectedRole, role)
+	assert.ElementsMatch(t, expectedServices, parsedConfig.Services)
+	assert.ElementsMatch(t, expectedScheduledTasks, parsedConfig.ScheduledTasks)
+	assert.Equal(t, expectedRole, parsedConfig.Role)
+	assert.Equal(t, 5, parsedConfig.TimeoutMinutes)
 }
 
 func TestReadServicesWithoutRole(t *testing.T) {
@@ -77,29 +78,32 @@ func TestReadServicesWithoutRole(t *testing.T) {
 		},
 	}
 
-	services, scheduledTasks, role, err := config.Read("testdata/gehen.no-role.yml", gitsha)
+	parsedConfig, err := config.Read("testdata/gehen.no-role.yml", gitsha)
 
 	assert.NoError(t, err)
-	assert.ElementsMatch(t, expectedServices, services)
-	assert.ElementsMatch(t, expectedScheduledTasks, scheduledTasks)
-	assert.Nil(t, role)
+	assert.ElementsMatch(t, expectedServices, parsedConfig.Services)
+	assert.ElementsMatch(t, expectedScheduledTasks, parsedConfig.ScheduledTasks)
+	assert.Nil(t, parsedConfig.Role)
+	assert.Equal(t, 0, parsedConfig.TimeoutMinutes)
 }
 
 func TestReadServicesInvalid(t *testing.T) {
 	gitsha := "da39a3ee5e6b4b0d3255bfef95601890afd80709"
-	services, scheduledTasks, role, err := config.Read("testdata/gehen.bad.yml", gitsha)
+	parsedConfig, err := config.Read("testdata/gehen.bad.yml", gitsha)
 
 	assert.Error(t, err)
-	assert.Nil(t, services)
-	assert.Nil(t, scheduledTasks)
-	assert.Nil(t, role)
+	assert.Nil(t, parsedConfig.Services)
+	assert.Nil(t, parsedConfig.ScheduledTasks)
+	assert.Nil(t, parsedConfig.Role)
+	assert.Equal(t, 0, parsedConfig.TimeoutMinutes)
 }
 
 func TestNoGehenYaml(t *testing.T) {
-	services, scheduledTasks, role, err := config.Read("testdata/gehen.notfound.yml", "")
+	parsedConfig, err := config.Read("testdata/gehen.notfound.yml", "")
 
 	assert.Error(t, err)
-	assert.Nil(t, services)
-	assert.Nil(t, scheduledTasks)
-	assert.Nil(t, role)
+	assert.Nil(t, parsedConfig.Services)
+	assert.Nil(t, parsedConfig.ScheduledTasks)
+	assert.Nil(t, parsedConfig.Role)
+	assert.Equal(t, 0, parsedConfig.TimeoutMinutes)
 }

@@ -94,8 +94,21 @@ func CheckDrain(service *config.Service, ecsClient ecsiface.ECSAPI) (bool, error
 		return false, errors.Wrapf(err, "failed to get current service: %s", service.Name)
 	}
 
-	for _, deployment := range respDescribeServices.Services[0].Deployments {
-		if (*deployment.TaskDefinition == service.TaskDefinitionARN) && (*deployment.Status == "PRIMARY") && (*deployment.RunningCount == *deployment.DesiredCount) {
+	if len(respDescribeServices.Services) != 1 {
+		return false, errors.Wrapf(err, "expected 1 service named %s, got %d", service.Name, len(respDescribeServices.Services))
+	}
+
+	awsService := respDescribeServices.Services[0]
+	for _, deployment := range awsService.Deployments {
+		expectedTaskDefARN := service.TaskDefinitionARN
+		if expectedTaskDefARN == "" {
+			// If no task def arn set for the service, fallback to the one present on AWS
+			// this should work since that is set by calls to UpdateService, so it should be
+			// the desired one for new deploys
+			expectedTaskDefARN = *awsService.TaskDefinition
+		}
+
+		if (*deployment.TaskDefinition == expectedTaskDefARN) && (*deployment.Status == "PRIMARY") && (*deployment.RunningCount == *deployment.DesiredCount) {
 			return true, nil
 		}
 	}

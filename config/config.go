@@ -12,12 +12,12 @@ import (
 const (
 	UpdateStrategyCurrent = "current"
 	UpdateStrategyLatest  = "latest"
+	UpdateStrategyNone    = "none"
 )
 
 type serviceConfig struct {
-	Cluster        string `yaml:"cluster"`
-	URL            string `yaml:"url"`
-	UpdateStrategy string `yaml:"updateStrategy"`
+	Cluster string `yaml:"cluster"`
+	URL     string `yaml:"url"`
 }
 
 type scheduledTaskConfig struct{}
@@ -26,6 +26,8 @@ type gehenConfig struct {
 	Services       map[string]serviceConfig       `yaml:"services"`
 	ScheduledTasks map[string]scheduledTaskConfig `yaml:"scheduledTasks"`
 	Role           Role                           `yaml:"role"`
+	TimeoutMinutes int                            `yaml:"timeoutMinutes"`
+	UpdateStrategy string                         `yaml:"updateStrategy"`
 }
 
 // Role represents an IAM role to assume
@@ -57,37 +59,46 @@ type ScheduledTask struct {
 	PreviousTaskDefinitionARN string
 }
 
+type ParsedConfig struct {
+	Services       []*Service
+	ScheduledTasks []*ScheduledTask
+	Role           *Role
+	TimeoutMinutes int
+	UpdateStrategy string
+}
+
 // Read reads the config file at the given path and returns
 // a slice of services and scheduled tasks.
-func Read(configPath, gitsha string) ([]*Service, []*ScheduledTask, *Role, error) {
+func Read(configPath, gitsha string) (ParsedConfig, error) {
 	if !file.FileOrDirExists(configPath) {
-		return nil, nil, nil, errors.Errorf("No such file %s", configPath)
+		return ParsedConfig{}, errors.Errorf("no such file %s", configPath)
 	}
 
 	file, err := os.Open(configPath)
 	if err != nil {
-		return nil, nil, nil, errors.Wrapf(err, "failed to open file %s", configPath)
+		return ParsedConfig{}, errors.Wrapf(err, "failed to open file %s", configPath)
 	}
 	defer file.Close()
 
 	var config gehenConfig
 	err = yaml.NewDecoder(file).Decode(&config)
 	if err != nil {
-		return nil, nil, nil, errors.Wrapf(err, "couldn't read yaml file at %s", configPath)
+		return ParsedConfig{}, errors.Wrapf(err, "couldn't read yaml file at %s", configPath)
 	}
 
-	services := make([]*Service, 0, len(config.Services))
+	updateStrategy := strings.ToLower(config.UpdateStrategy)
+	switch updateStrategy {
+	case UpdateStrategyCurrent, UpdateStrategyLatest, UpdateStrategyNone:
+	case "":
+		// Default is current
+		updateStrategy = UpdateStrategyCurrent
+	default:
+		err := errors.Errorf(`config: invalid updateStrategy %q, must be "current", "latest" or "none`, config.UpdateStrategy)
+		return ParsedConfig{}, err
+	}
+
+	var services []*Service
 	for name, s := range config.Services {
-		updateStrategy := strings.ToLower(s.UpdateStrategy)
-		switch updateStrategy {
-		case UpdateStrategyCurrent, UpdateStrategyLatest:
-		case "":
-			// Default is current
-			updateStrategy = UpdateStrategyCurrent
-		default:
-			err := errors.Errorf(`services: %s: invalid updateStrategy %q, must be "current" or "latest"`, name, s.UpdateStrategy)
-			return nil, nil, nil, err
-		}
 		service := Service{
 			Name:           name,
 			Gitsha:         gitsha,
@@ -98,7 +109,7 @@ func Read(configPath, gitsha string) ([]*Service, []*ScheduledTask, *Role, error
 		services = append(services, &service)
 	}
 
-	scheduledTasks := make([]*ScheduledTask, 0, len(config.ScheduledTasks))
+	var scheduledTasks []*ScheduledTask
 	for name := range config.ScheduledTasks {
 		task := ScheduledTask{
 			Name:   name,
@@ -107,9 +118,16 @@ func Read(configPath, gitsha string) ([]*Service, []*ScheduledTask, *Role, error
 		scheduledTasks = append(scheduledTasks, &task)
 	}
 
-	if config.Role.ARN == "" {
-		return services, scheduledTasks, nil, nil
+	parsedConfig := ParsedConfig{
+		Services:       services,
+		ScheduledTasks: scheduledTasks,
+		TimeoutMinutes: config.TimeoutMinutes,
+		UpdateStrategy: updateStrategy,
 	}
 
-	return services, scheduledTasks, &config.Role, nil
+	if config.Role.ARN != "" {
+		parsedConfig.Role = &config.Role
+	}
+
+	return parsedConfig, nil
 }

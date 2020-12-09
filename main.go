@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"time"
 
 	"github.com/DataDog/datadog-go/statsd"
 	"github.com/TouchBistro/gehen/config"
@@ -251,12 +252,12 @@ func main() {
 
 	// gehen config, get and validate services
 
-	services, scheduledTasks, role, err := config.Read(configPath, gitsha)
+	parsedConfig, err := config.Read(configPath, gitsha)
 	if err != nil {
 		fatal.ExitErr(err, "Failed to get services from config file")
 	}
 
-	if len(services) == 0 {
+	if len(parsedConfig.Services) == 0 {
 		fatal.Exit("gehen.yml must contain at least one service")
 	}
 
@@ -268,8 +269,8 @@ func main() {
 	var ecsClient *ecs.ECS
 	var ebClient *eventbridge.EventBridge
 
-	if role != nil {
-		awsConfig := aws.NewConfig().WithCredentials(stscreds.NewCredentials(sess, role.ARN))
+	if parsedConfig.Role != nil {
+		awsConfig := aws.NewConfig().WithCredentials(stscreds.NewCredentials(sess, parsedConfig.Role.ARN))
 
 		ecsClient = ecs.New(sess, awsConfig)
 		ebClient = eventbridge.New(sess, awsConfig)
@@ -278,10 +279,14 @@ func main() {
 		ebClient = eventbridge.New(sess)
 	}
 
+	if parsedConfig.TimeoutMinutes != 0 {
+		deploy.TimeoutDuration(time.Duration(parsedConfig.TimeoutMinutes) * time.Minute)
+	}
+
 	// DEPLOYMENT ZONE //
 
 	// Update scheduled tasks first so if this fails we don't need to worry about rolling back services
-	updateScheduledTaskResults := deploy.UpdateScheduledTasks(scheduledTasks, ebClient, ecsClient)
+	updateScheduledTaskResults := deploy.UpdateScheduledTasks(parsedConfig.ScheduledTasks, ebClient, ecsClient)
 	updateScheduledTasksFailed := false
 
 	for _, result := range updateScheduledTaskResults {
@@ -306,44 +311,47 @@ func main() {
 		fatal.Exit(color.Red("Failed to update some scheduled tasks"))
 	}
 
-	deployResults := deploy.Deploy(services, ecsClient)
-	deployFailed := false
-	succeededServices := make([]*config.Service, 0)
+	deployEnabled := parsedConfig.UpdateStrategy != config.UpdateStrategyNone
+	if deployEnabled {
+		deployResults := deploy.Deploy(parsedConfig.Services, ecsClient)
+		deployFailed := false
+		succeededServices := make([]*config.Service, 0)
 
-	for _, result := range deployResults {
-		if result.Err == nil {
-			succeededServices = append(succeededServices, result.Service)
-			continue
+		for _, result := range deployResults {
+			if result.Err == nil {
+				succeededServices = append(succeededServices, result.Service)
+				continue
+			}
+
+			deployFailed = true
+			log.Printf(
+				"Failed to create new deployment to version %s for %s",
+				color.Magenta(result.Service.Gitsha),
+				color.Cyan(result.Service.Name),
+			)
+			log.Printf("Error: %v", result.Err)
+
+			if useSentry {
+				sentry.CaptureException(result.Err)
+			}
 		}
 
-		deployFailed = true
-		log.Printf(
-			"Failed to create new deployment to version %s for %s",
-			color.Magenta(result.Service.Gitsha),
-			color.Cyan(result.Service.Name),
-		)
-		log.Printf("Error: %v", result.Err)
-
-		if useSentry {
-			sentry.CaptureException(result.Err)
+		if deployFailed {
+			// If deploying failed we need to rollback all services that succeeded so that they aren't in inconsitent states
+			// If deploy failed that means the new version wasn't even registered on ECS so we only need to rollback ones that succeeded
+			log.Println(color.Red("Failed to create new versions of some services"))
+			log.Println(color.Yellow("Rolling back services that succeeded to prevent inconsistent states"))
+			performRollback(succeededServices, parsedConfig.ScheduledTasks, ebClient, ecsClient)
 		}
+
+		sendStatsdEvents(parsedConfig.Services, "gehen.deploys.started", "Gehen started a deploy for service %s")
 	}
 
-	if deployFailed {
-		// If deploying failed we need to rollback all services that succeeded so that they aren't in inconsitent states
-		// If deploy failed that means the new version wasn't even registered on ECS so we only need to rollback ones that succeeded
-		log.Println(color.Red("Failed to create new versions of some services"))
-		log.Println(color.Yellow("Rolling back services that succeeded to prevent inconsistent states"))
-		performRollback(succeededServices, scheduledTasks, ebClient, ecsClient)
-	}
-
-	sendStatsdEvents(services, "gehen.deploys.started", "Gehen started a deploy for service %s")
-
-	checkDeployedResults := deploy.CheckDeployed(services)
+	checkDeployedResults := deploy.CheckDeployed(parsedConfig.Services)
 	checkDeployedFailed := false
 
 	for _, result := range checkDeployedResults {
-		if result.Err == nil {
+		if result.Err == nil || result.Err == deploy.ErrNoDeployCheckURL {
 			continue
 		}
 
@@ -376,13 +384,18 @@ func main() {
 		log.Println(color.Red("Some services failed deployment"))
 		log.Println("This means your service failed to boot, or was unable to serve requests.")
 		log.Println("Your next step should be to check the logs for your service to find out why.")
+
+		if !deployEnabled {
+			fatal.Exit("❌ Deployment failed")
+		}
+
 		log.Println(color.Yellow("Rolling all services back to the previous version"))
-		performRollback(services, scheduledTasks, ebClient, ecsClient)
+		performRollback(parsedConfig.Services, parsedConfig.ScheduledTasks, ebClient, ecsClient)
 	}
 
-	sendStatsdEvents(services, "gehen.deploys.draining", "Gehen is checking for service drain on %s")
+	sendStatsdEvents(parsedConfig.Services, "gehen.deploys.draining", "Gehen is checking for service drain on %s")
 
-	checkDrainedResults := deploy.CheckDrained(services, ecsClient)
+	checkDrainedResults := deploy.CheckDrained(parsedConfig.Services, ecsClient)
 	checkDrainedFailed := false
 
 	for _, result := range checkDrainedResults {
@@ -410,7 +423,7 @@ func main() {
 		log.Println(color.Yellow("This means there are two different versions of the same service in production"))
 		log.Println(color.Yellow("Please investigate why this is the case"))
 	} else {
-		sendStatsdEvents(services, "gehen.deploys.completed", "Gehen successfully deployed %s")
+		sendStatsdEvents(parsedConfig.Services, "gehen.deploys.completed", "Gehen successfully deployed %s")
 	}
 
 	log.Println(color.Green("🚀 Finished deploying all services 🚀"))
