@@ -16,8 +16,9 @@ const (
 )
 
 type serviceConfig struct {
-	Cluster string `yaml:"cluster"`
-	URL     string `yaml:"url"`
+	Cluster    string   `yaml:"cluster"`
+	URL        string   `yaml:"url"`
+	Containers []string `yaml:"containers"`
 }
 
 type scheduledTaskConfig struct{}
@@ -42,6 +43,7 @@ type Service struct {
 	Cluster        string
 	URL            string
 	UpdateStrategy string
+	Containers     []string
 	// The Git SHA of the previous deployment. Used by Gehen for rollback purposes.
 	// Please do not modify this value.
 	PreviousGitsha            string
@@ -105,6 +107,7 @@ func Read(configPath, gitsha string) (ParsedConfig, error) {
 			Cluster:        s.Cluster,
 			URL:            s.URL,
 			UpdateStrategy: updateStrategy,
+			Containers:     s.Containers,
 		}
 		services = append(services, &service)
 	}
