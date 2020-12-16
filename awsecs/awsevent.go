@@ -50,7 +50,7 @@ func UpdateScheduledTask(args UpdateScheduledTaskArgs) error {
 		// or if this is even allowed by ECS
 		// Passing an empty array as the containers to update means gehen will update all
 		// containers within this task definition to the new sha.
-		updateTaskDefRes, err := updateTaskDef(taskDefARN, task.Gitsha, make([]string, 0), config.UpdateStrategyCurrent, args.ECSClient)
+		updateTaskDefRes, err := updateTaskDef(taskDefARN, task.Gitsha, config.UpdateStrategyCurrent, []string{}, args.ECSClient)
 		if err != nil {
 			return errors.Wrapf(err, "failed to update task def for scheduled task: %s", task.Name)
 		}

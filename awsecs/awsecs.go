@@ -41,7 +41,7 @@ func Deploy(service *config.Service, ecsClient ecsiface.ECSAPI) error {
 	taskDefARN := *respDescribeServices.Services[0].TaskDefinition
 	log.Printf("Found current task definition: %v\n", taskDefARN)
 
-	updateTaskDefRes, err := updateTaskDef(taskDefARN, service.Gitsha, service.Containers, service.UpdateStrategy, ecsClient)
+	updateTaskDefRes, err := updateTaskDef(taskDefARN, service.Gitsha, service.UpdateStrategy, service.Containers, ecsClient)
 	if err != nil {
 		return errors.Wrapf(err, "failed to update task def for service: %s", service.Name)
 	}
@@ -124,7 +124,7 @@ type updateTaskDefResult struct {
 
 // updateTaskDef creates a new task def revision with the container image updated to use the new Git SHA.
 // It returns the new ARN and previous Git SHA.
-func updateTaskDef(taskDefARN, gitsha string, containers []string, updateStrategy string, ecsClient ecsiface.ECSAPI) (updateTaskDefResult, error) {
+func updateTaskDef(taskDefARN, gitsha, updateStrategy string, containers []string, ecsClient ecsiface.ECSAPI) (updateTaskDefResult, error) {
 	taskDefName := taskDefARN
 	if updateStrategy == config.UpdateStrategyLatest {
 		// If latest parse the family name from the ARN so we can look up the latest revision
@@ -176,7 +176,7 @@ func updateTaskDef(taskDefARN, gitsha string, containers []string, updateStrateg
 		// If service config does not specify which containers to update, we update all containers
 		// in that task def.
 		if len(containersToUpdate) != 0 {
-			if _, found := containersToUpdate[*containerDef.Name]; !found {
+			if found := containersToUpdate[*containerDef.Name]; !found {
 				continue
 			}
 		}
