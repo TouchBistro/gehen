@@ -172,17 +172,17 @@ func updateTaskDef(taskDefARN, gitsha string, containers []string, updateStrateg
 	}
 
 	// Update desired containers in task def to use same repo with new tag/sha
-	for i, container := range newTaskInput.ContainerDefinitions {
+	for i, containerDef := range newTaskInput.ContainerDefinitions {
 		// If service config does not specify which containers to update, we update all containers
 		// in that task def.
 		if len(containersToUpdate) != 0 {
-			if _, found := containersToUpdate[*container.Name]; !found {
+			if _, found := containersToUpdate[*containerDef.Name]; !found {
 				continue
 			}
 		}
 
 		// Images have the form <repo-url>/<image>:<tag>
-		t := strings.Split(*container.Image, ":")
+		t := strings.Split(*containerDef.Image, ":")
 
 		if previousGitsha == "" {
 			// Tag is the last element which is the SHA
@@ -198,7 +198,7 @@ func updateTaskDef(taskDefARN, gitsha string, containers []string, updateStrateg
 
 		// Get new image by using new SHA
 		newImage := fmt.Sprintf("%s:%s", strings.Join(t[:len(t)-1], ""), gitsha)
-		log.Printf("Changing container image %s to %s", color.Cyan(*container.Image), color.Cyan(newImage))
+		log.Printf("Changing container image %s to %s", color.Cyan(*containerDef.Image), color.Cyan(newImage))
 		*newTaskInput.ContainerDefinitions[i].Image = newImage
 	}
 
