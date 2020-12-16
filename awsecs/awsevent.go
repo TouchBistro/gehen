@@ -45,7 +45,12 @@ func UpdateScheduledTask(args UpdateScheduledTaskArgs) error {
 		// Create a new revision of the task def using the new git sha
 		taskDefARN := *awsTarget.EcsParameters.TaskDefinitionArn
 		log.Printf("Found current task definition: %s\n", taskDefARN)
-		updateTaskDefRes, err := updateTaskDef(taskDefARN, task.Gitsha, config.UpdateStrategyCurrent, args.ECSClient)
+
+		// TODO(ohsabry): See if we want to support specifying containers for scheduled tasks
+		// or if this is even allowed by ECS
+		// Passing an empty array as the containers to update means gehen will update all
+		// containers within this task definition to the new sha.
+		updateTaskDefRes, err := updateTaskDef(taskDefARN, task.Gitsha, config.UpdateStrategyCurrent, []string{}, args.ECSClient)
 		if err != nil {
 			return errors.Wrapf(err, "failed to update task def for scheduled task: %s", task.Name)
 		}

@@ -16,6 +16,7 @@ func TestReadServicesWithRole(t *testing.T) {
 			Cluster:        "arn:aws:ecs:us-east-1:123456:cluster/prod-cluster",
 			URL:            "https://example.touchbistro.io/ping",
 			UpdateStrategy: config.UpdateStrategyLatest,
+			Containers:     []string{"sidecar", "service"},
 		},
 		{
 			Name:           "example-staging",
