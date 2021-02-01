@@ -257,6 +257,10 @@ func main() {
 		fatal.ExitErr(err, "Failed to get services from config file")
 	}
 
+	if len(parsedConfig.Services) == 0 {
+		fatal.Exit("gehen.yml must contain at least one service")
+	}
+
 	sess := session.Must(session.NewSession(&aws.Config{
 		Region: aws.String("us-east-1"),
 	}))
