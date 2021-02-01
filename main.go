@@ -257,8 +257,8 @@ func main() {
 		fatal.ExitErr(err, "Failed to get services from config file")
 	}
 
-	if len(parsedConfig.Services) == 0 {
-		fatal.Exit("gehen.yml must contain at least one service")
+	if len(parsedConfig.Services) == 0 && len(parsedConfig.ScheduledTasks) == 0 {
+		fatal.Exit("gehen.yml must contain at least one service or scheduled task")
 	}
 
 	sess := session.Must(session.NewSession(&aws.Config{
