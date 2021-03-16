@@ -17,7 +17,7 @@ import (
 
 var (
 	// Deployment check timeout in minutes
-	timeoutDuration = 5 * time.Minute
+	timeoutDuration = 10 * time.Minute
 	// Check interval in seconds
 	checkIntervalDuration = 15 * time.Second
 )
@@ -38,7 +38,7 @@ type Result struct {
 
 // TimeoutDuration sets the duration to wait for CheckDeployed and CheckDrained
 // before timing out.
-// Default is 5 minutes.
+// Default is 10 minutes.
 func TimeoutDuration(d time.Duration) {
 	timeoutDuration = d
 }
