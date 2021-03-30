@@ -1,6 +1,7 @@
 package awsecs
 
 import (
+	stderrors "errors"
 	"fmt"
 	"log"
 	"regexp"
@@ -14,6 +15,9 @@ import (
 	"github.com/aws/aws-sdk-go/service/ecs/ecsiface"
 	"github.com/pkg/errors"
 )
+
+// ErrHealthcheckFailed indicates that a ECS task failed a container healthcheck.
+var ErrHealthcheckFailed = stderrors.New("health check failed")
 
 // Deploy registers a new task for the given service in ECS in order to create a new deployment.
 func Deploy(service *config.Service, ecsClient ecsiface.ECSAPI) error {
@@ -80,20 +84,25 @@ func UpdateService(service *config.Service, ecsClient ecsiface.ECSAPI) error {
 	return nil
 }
 
-// CheckDrain checks if all old tasks have drained.
+// CheckDrain checks if all old tasks have drained. If the tasks are failing healthchecks,
+// the return error will wrap ErrHealthcheckFailed.
 func CheckDrain(service *config.Service, ecsClient ecsiface.ECSAPI) (bool, error) {
-	serviceInput := &ecs.DescribeServicesInput{
+	respDescribeServices, err := ecsClient.DescribeServices(&ecs.DescribeServicesInput{
 		Services: []*string{
 			&service.Name,
 		},
 		Cluster: &service.Cluster,
-	}
-
-	respDescribeServices, err := ecsClient.DescribeServices(serviceInput)
+	})
 	if err != nil {
 		return false, errors.Wrapf(err, "failed to get current service: %s", service.Name)
 	}
-
+	if len(respDescribeServices.Failures) > 0 {
+		var sb strings.Builder
+		for _, f := range respDescribeServices.Failures {
+			sb.WriteString(f.String())
+		}
+		return false, errors.Wrapf(err, "failed to get service: %v", sb)
+	}
 	if len(respDescribeServices.Services) != 1 {
 		return false, errors.Wrapf(err, "expected 1 service named %s, got %d", service.Name, len(respDescribeServices.Services))
 	}
@@ -110,6 +119,36 @@ func CheckDrain(service *config.Service, ecsClient ecsiface.ECSAPI) (bool, error
 
 		if (*deployment.TaskDefinition == expectedTaskDefARN) && (*deployment.Status == "PRIMARY") && (*deployment.RunningCount == *deployment.DesiredCount) {
 			return true, nil
+		}
+	}
+
+	// Check and see if container healthchecks failed so we can provide more details
+
+	// TODO(@cszatmary): The response could be paginated, may need to handle this in the future
+	respListTasks, err := ecsClient.ListTasks(&ecs.ListTasksInput{
+		Cluster:     &service.Cluster,
+		ServiceName: &service.Name,
+	})
+	if err != nil {
+		return false, errors.Wrapf(err, "failed to list tasks for service: %s", service.Name)
+	}
+	respDescribeTasks, err := ecsClient.DescribeTasks(&ecs.DescribeTasksInput{
+		Tasks: respListTasks.TaskArns,
+	})
+	if err != nil {
+		return false, errors.Wrapf(err, "failed to get tasks for service: %s", service.Name)
+	}
+	if len(respDescribeTasks.Failures) > 0 {
+		var sb strings.Builder
+		for _, f := range respDescribeServices.Failures {
+			sb.WriteString(f.String())
+		}
+		return false, errors.Wrapf(err, "failed to get tasks: %v", sb)
+	}
+
+	for _, task := range respDescribeTasks.Tasks {
+		if *task.HealthStatus != "HEALTHY" && *task.TaskDefinitionArn == service.TaskDefinitionARN {
+			return false, errors.Wrapf(ErrHealthcheckFailed, "task %s is unhealthy", *task.TaskArn)
 		}
 	}
 
