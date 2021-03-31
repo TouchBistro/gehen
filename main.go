@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/DataDog/datadog-go/statsd"
+	"github.com/TouchBistro/gehen/awsecs"
 	"github.com/TouchBistro/gehen/config"
 	"github.com/TouchBistro/gehen/deploy"
 	"github.com/TouchBistro/goutils/color"
@@ -397,17 +398,22 @@ func main() {
 
 	checkDrainedResults := deploy.CheckDrained(parsedConfig.Services, ecsClient)
 	checkDrainedFailed := false
+	checkDrainTimedOut := false
 
 	for _, result := range checkDrainedResults {
 		if result.Err == nil {
 			continue
 		}
 
-		checkDrainedFailed = true
-
 		if errors.Is(result.Err, deploy.ErrTimedOut) {
 			log.Printf("Timed out while waiting for old versions of %s to stop running", color.Cyan(result.Service.Name))
+			checkDrainTimedOut = true
 			continue
+		}
+
+		checkDrainedFailed = true
+		if errors.Is(result.Err, awsecs.ErrHealthcheckFailed) {
+			log.Printf("Container health checks failed for %s", color.Cyan(result.Service.Name))
 		}
 
 		log.Printf("Failed to check if old version of %s are gone", color.Cyan(result.Service.Name))
@@ -419,6 +425,12 @@ func main() {
 	}
 
 	if checkDrainedFailed {
+		log.Println(color.Red("Some services failed to drain old versions"))
+		log.Println("This means the new version failed to boot, or was unable to serve requests.")
+		log.Println("Your next step should be to check the logs for your service to find out why.")
+		log.Println(color.Yellow("Rolling all services back to the previous version"))
+		performRollback(parsedConfig.Services, parsedConfig.ScheduledTasks, ebClient, ecsClient)
+	} else if checkDrainTimedOut {
 		log.Println(color.Yellow("Some services still have the old version running"))
 		log.Println(color.Yellow("This means there are two different versions of the same service in production"))
 		log.Println(color.Yellow("Please investigate why this is the case"))

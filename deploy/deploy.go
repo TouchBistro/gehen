@@ -181,7 +181,6 @@ func CheckDrained(services []*config.Service, ecsClient ecsiface.ECSAPI) []Resul
 
 				drained, err := awsecs.CheckDrain(service, ecsClient)
 				if err != nil {
-					// This should never error otherwise Deploy would have failed
 					// If this happens abort because it will never succeed
 					resultChan <- Result{service, err}
 					return
@@ -197,16 +196,18 @@ func CheckDrained(services []*config.Service, ecsClient ecsiface.ECSAPI) []Resul
 		}(s)
 	}
 
-	// Set of service names that succeeded
-	succeededServices := make(map[string]bool)
+	// Set of service names that finished the check
+	finishedServices := make(map[string]bool)
 	results := make([]Result, 0, len(services))
 
 loop:
 	for i := 0; i < len(services); i++ {
 		select {
 		case result := <-resultChan:
-			log.Printf("Version %s successfully deployed to %s\n", color.Green(result.Service.Gitsha), color.Cyan(result.Service.Name))
-			succeededServices[result.Service.Name] = true
+			if result.Err != nil {
+				log.Printf("Version %s successfully deployed to %s\n", color.Green(result.Service.Gitsha), color.Cyan(result.Service.Name))
+			}
+			finishedServices[result.Service.Name] = true
 			results = append(results, result)
 		case <-time.After(timeoutDuration):
 			// Stop looping, anything that didn't succeed has now failed
@@ -216,8 +217,7 @@ loop:
 
 	// Figure out which, if any, services timed out
 	for _, s := range services {
-		succeeded := succeededServices[s.Name]
-		if !succeeded {
+		if finished := finishedServices[s.Name]; !finished {
 			result := Result{s, ErrTimedOut}
 			results = append(results, result)
 		}
