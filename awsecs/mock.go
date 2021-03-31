@@ -3,6 +3,8 @@ package awsecs
 import (
 	"errors"
 	"fmt"
+	"math/rand"
+	"strconv"
 
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/service/ecs"
@@ -23,9 +25,29 @@ func (ms *mockService) TaskDefinitionArn() string {
 	return fmt.Sprintf("arn:aws:ecs:us-east-1:123456:task-definition/%s:%d", ms.name, ms.taskDefVersion)
 }
 
+type mockTask struct {
+	id          string
+	taskDefArn  string
+	healthy     bool
+	serviceName string
+	clusterName string
+}
+
+func (mt *mockTask) Arn() string {
+	return fmt.Sprintf("arn:aws:ecs:us-east-1:123456:task/%s/%s", mt.clusterName, mt.id)
+}
+
+func (mt *mockTask) HealthStatus() string {
+	if mt.healthy {
+		return "HEALTHY"
+	}
+	return "UNHEALTHY"
+}
+
 type MockECSClient struct {
 	ecsiface.ECSAPI
 	services map[string]*mockService
+	tasks    []mockTask
 }
 
 func NewMockECSClient(serviceNames []string, imageName, gitsha string) *MockECSClient {
@@ -60,7 +82,7 @@ func (mc *MockECSClient) DescribeServices(input *ecs.DescribeServicesInput) (*ec
 	for _, serviceName := range input.Services {
 		s, ok := mc.services[*serviceName]
 		if !ok {
-			return nil, errors.New("Service not found")
+			return nil, errors.New("service not found")
 		}
 
 		outServices = append(outServices, &ecs.Service{
@@ -92,7 +114,7 @@ func (mc *MockECSClient) DescribeTaskDefinition(input *ecs.DescribeTaskDefinitio
 	}
 
 	if service == nil {
-		return nil, errors.New("Task Definition not found")
+		return nil, errors.New("task Definition not found")
 	}
 
 	image := fmt.Sprintf("123456.dkr.ecr.us-east-1.amazonaws.com/%s:%s", service.imageName, service.gitsha)
@@ -113,7 +135,7 @@ func (mc *MockECSClient) DescribeTaskDefinition(input *ecs.DescribeTaskDefinitio
 func (mc *MockECSClient) RegisterTaskDefinition(input *ecs.RegisterTaskDefinitionInput) (*ecs.RegisterTaskDefinitionOutput, error) {
 	service, ok := mc.services[*input.Family]
 	if !ok {
-		return nil, errors.New("Task definition family not found")
+		return nil, errors.New("task definition family not found")
 	}
 
 	// "Create" new task def version
@@ -129,11 +151,61 @@ func (mc *MockECSClient) RegisterTaskDefinition(input *ecs.RegisterTaskDefinitio
 func (mc *MockECSClient) UpdateService(input *ecs.UpdateServiceInput) (*ecs.UpdateServiceOutput, error) {
 	_, ok := mc.services[*input.Service]
 	if !ok {
-		return nil, errors.New("Service not found")
+		return nil, errors.New("service not found")
 	}
 
 	// We don't actually use the return value
 	return &ecs.UpdateServiceOutput{}, nil
+}
+
+func (mc *MockECSClient) CreateMockTasks(clusterName, serviceName, taskDefArn string, healthy bool, count int) {
+	for i := 0; i < count; i++ {
+		mc.tasks = append(mc.tasks, mockTask{
+			id:          strconv.Itoa(rand.Int()),
+			clusterName: clusterName,
+			serviceName: serviceName,
+			taskDefArn:  taskDefArn,
+			healthy:     healthy,
+		})
+	}
+}
+
+func (mc *MockECSClient) ListTasks(input *ecs.ListTasksInput) (*ecs.ListTasksOutput, error) {
+	var taskArns []*string
+	for _, t := range mc.tasks {
+		if input.Cluster != nil && t.clusterName != *input.Cluster {
+			continue
+		}
+		if input.ServiceName != nil && t.serviceName != *input.ServiceName {
+			continue
+		}
+		taskArns = append(taskArns, aws.String(t.Arn()))
+	}
+	return &ecs.ListTasksOutput{TaskArns: taskArns}, nil
+}
+
+func (mc *MockECSClient) DescribeTasks(input *ecs.DescribeTasksInput) (*ecs.DescribeTasksOutput, error) {
+	arnSet := make(map[string]bool)
+	for _, arn := range input.Tasks {
+		arnSet[*arn] = true
+	}
+
+	var tasks []*ecs.Task
+	for _, t := range mc.tasks {
+		if input.Cluster != nil && t.clusterName != *input.Cluster {
+			continue
+		}
+		ok := arnSet[t.Arn()]
+		if input.Tasks != nil && !ok {
+			continue
+		}
+		tasks = append(tasks, &ecs.Task{
+			TaskArn:           aws.String(t.Arn()),
+			TaskDefinitionArn: aws.String(t.taskDefArn),
+			HealthStatus:      aws.String(t.HealthStatus()),
+		})
+	}
+	return &ecs.DescribeTasksOutput{Tasks: tasks}, nil
 }
 
 // Event Bridge mocks
@@ -166,7 +238,7 @@ func NewMockEventBridgeClient(taskNames []string) *MockEventBridgeClient {
 func (mc *MockEventBridgeClient) ListTargetsByRule(input *eventbridge.ListTargetsByRuleInput) (*eventbridge.ListTargetsByRuleOutput, error) {
 	t, ok := mc.tasks[*input.Rule]
 	if !ok {
-		return nil, errors.New("Rule not found")
+		return nil, errors.New("rule not found")
 	}
 
 	return &eventbridge.ListTargetsByRuleOutput{
@@ -183,7 +255,7 @@ func (mc *MockEventBridgeClient) ListTargetsByRule(input *eventbridge.ListTarget
 func (mc *MockEventBridgeClient) PutTargets(input *eventbridge.PutTargetsInput) (*eventbridge.PutTargetsOutput, error) {
 	t, ok := mc.tasks[*input.Rule]
 	if !ok {
-		return nil, errors.New("Rule not found")
+		return nil, errors.New("rule not found")
 	}
 
 	t.taskDefARN = *input.Targets[0].EcsParameters.TaskDefinitionArn

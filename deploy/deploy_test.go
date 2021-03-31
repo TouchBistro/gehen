@@ -1,6 +1,7 @@
 package deploy_test
 
 import (
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -387,6 +388,20 @@ func TestCheckDrain(t *testing.T) {
 		"example-service",
 		gitsha,
 	)
+	mockClient.CreateMockTasks(
+		"arn:aws:ecs:us-east-1:123456:cluster/prod-cluster",
+		"example-production",
+		"arn:aws:ecs:us-east-1:123456:task-definition/example-production:1",
+		true,
+		2,
+	)
+	mockClient.CreateMockTasks(
+		"arn:aws:ecs:us-east-1:123456:cluster/prod-cluster",
+		"example-staging",
+		"arn:aws:ecs:us-east-1:123456:task-definition/example-staging:1",
+		true,
+		2,
+	)
 
 	expectedResults := []deploy.Result{
 		{
@@ -417,6 +432,70 @@ func TestCheckDrain(t *testing.T) {
 }
 
 func TestCheckDrainFailed(t *testing.T) {
+	deploy.TimeoutDuration(1 * time.Second)
+	deploy.CheckIntervalDuration(250 * time.Millisecond)
+
+	gitsha := "da39a3ee5e6b4b0d3255bfef95601890afd80709"
+	services := []*config.Service{
+		{
+			Name:              "example-production",
+			Gitsha:            gitsha,
+			Cluster:           "arn:aws:ecs:us-east-1:123456:cluster/prod-cluster",
+			URL:               "https://example.touchbistro.io/ping",
+			TaskDefinitionARN: "arn:aws:ecs:us-east-1:123456:task-definition/example-production:1",
+		},
+		{
+			Name:              "example-staging",
+			Gitsha:            gitsha,
+			Cluster:           "arn:aws:ecs:us-east-1:123456:cluster/non-prod-cluster",
+			URL:               "https://staging.example.touchbistro.io/ping",
+			TaskDefinitionARN: "arn:aws:ecs:us-east-1:123456:task-definition/example-staging:1",
+		},
+	}
+
+	mockClient := awsecs.NewMockECSClient(
+		[]string{
+			"example-production",
+			"example-staging",
+		},
+		"example-service",
+		gitsha,
+	)
+	mockClient.CreateMockTasks(
+		"arn:aws:ecs:us-east-1:123456:cluster/prod-cluster",
+		"example-production",
+		"arn:aws:ecs:us-east-1:123456:task-definition/example-production:1",
+		false,
+		2,
+	)
+	mockClient.CreateMockTasks(
+		"arn:aws:ecs:us-east-1:123456:cluster/prod-cluster",
+		"example-staging",
+		"arn:aws:ecs:us-east-1:123456:task-definition/example-staging:1",
+		false,
+		2,
+	)
+	mockClient.SetServiceStatus("example-production", "ACTIVE")
+	mockClient.SetServiceStatus("example-staging", "ACTIVE")
+
+	results := deploy.CheckDrained(services, mockClient)
+	var gotServices []*config.Service
+	var errs []error
+	for _, r := range results {
+		gotServices = append(gotServices, r.Service)
+		errs = append(errs, r.Err)
+	}
+
+	assert.ElementsMatch(t, services, gotServices)
+
+	for _, err := range errs {
+		if !errors.Is(err, awsecs.ErrHealthcheckFailed) {
+			assert.Fail(t, "expected ErrHealthcheckFailed, got", err)
+		}
+	}
+}
+
+func TestCheckDrainTimedOut(t *testing.T) {
 	deploy.TimeoutDuration(1 * time.Second)
 	deploy.CheckIntervalDuration(250 * time.Millisecond)
 
