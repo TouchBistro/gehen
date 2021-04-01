@@ -148,7 +148,7 @@ func CheckDrain(service *config.Service, ecsClient ecsiface.ECSAPI) (bool, error
 	}
 
 	for _, task := range respDescribeTasks.Tasks {
-		if *task.HealthStatus != "HEALTHY" && *task.TaskDefinitionArn == service.TaskDefinitionARN {
+		if task.HealthStatus != nil && *task.HealthStatus == "UNHEALTHY" && *task.TaskDefinitionArn == service.TaskDefinitionARN {
 			return false, errors.Wrapf(ErrHealthcheckFailed, "task %s is unhealthy", *task.TaskArn)
 		}
 	}
