@@ -133,7 +133,8 @@ func CheckDrain(service *config.Service, ecsClient ecsiface.ECSAPI) (bool, error
 		return false, errors.Wrapf(err, "failed to list tasks for service: %s", service.Name)
 	}
 	respDescribeTasks, err := ecsClient.DescribeTasks(&ecs.DescribeTasksInput{
-		Tasks: respListTasks.TaskArns,
+		Cluster: &service.Cluster,
+		Tasks:   respListTasks.TaskArns,
 	})
 	if err != nil {
 		return false, errors.Wrapf(err, "failed to get tasks for service: %s", service.Name)

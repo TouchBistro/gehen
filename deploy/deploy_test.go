@@ -469,7 +469,7 @@ func TestCheckDrainFailed(t *testing.T) {
 		2,
 	)
 	mockClient.CreateMockTasks(
-		"arn:aws:ecs:us-east-1:123456:cluster/prod-cluster",
+		"arn:aws:ecs:us-east-1:123456:cluster/non-prod-cluster",
 		"example-staging",
 		"arn:aws:ecs:us-east-1:123456:task-definition/example-staging:1",
 		false,
