@@ -50,6 +50,14 @@ Usage of ./gehen:
         Prints the current gehen version
 ```
 
+### Exit codes
+
+Gehen uses exit codes to communicate the result of a deployment. The following exit codes are used:
+
+- `0`: The deployment succeeded.
+- `1`: The deployment failed.
+- `2`: The timeout was reached. Gehen was unable to determine if the deployment was successful.
+
 ## Configuration
 
 Gehen is configured through a `gehen.yml` file. This contains the list of ECS services to deploy to. You can specify multiple services to deploy the service to multiple environments.

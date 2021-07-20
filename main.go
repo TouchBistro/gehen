@@ -166,6 +166,10 @@ func performRollback(services []*config.Service, scheduledTasks []*config.Schedu
 	if checkDrainedFailed {
 		log.Println(color.Yellow("The rollback was successful but some of the newer versions are still running"))
 		log.Println(color.Yellow("Please investigate why this is the case"))
+		// Do any cleanup manually since we are calling Exit and therefore defer won't run
+		cleanup()
+		// Exit code 2 to signal that this wasn't a successful deploy but it also wasn't a certain failure
+		os.Exit(2)
 	} else {
 		sendStatsdEvents(services, "gehen.rollbacks.completed", "Gehen successfully rolled back %s")
 	}
@@ -434,6 +438,10 @@ func main() {
 		log.Println(color.Yellow("Some services still have the old version running"))
 		log.Println(color.Yellow("This means there are two different versions of the same service in production"))
 		log.Println(color.Yellow("Please investigate why this is the case"))
+		// Do any cleanup manually since we are calling Exit and therefore defer won't run
+		cleanup()
+		// Exit code 2 to signal that this wasn't a successful deploy but it also wasn't a certain failure
+		os.Exit(2)
 	} else {
 		sendStatsdEvents(parsedConfig.Services, "gehen.deploys.completed", "Gehen successfully deployed %s")
 	}
