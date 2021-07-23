@@ -56,6 +56,7 @@ type Service struct {
 type ScheduledTask struct {
 	Name                      string
 	Gitsha                    string
+	UpdateStrategy            string
 	PreviousGitsha            string
 	TaskDefinitionARN         string
 	PreviousTaskDefinitionARN string
@@ -115,8 +116,9 @@ func Read(configPath, gitsha string) (ParsedConfig, error) {
 	var scheduledTasks []*ScheduledTask
 	for name := range config.ScheduledTasks {
 		task := ScheduledTask{
-			Name:   name,
-			Gitsha: gitsha,
+			Name:           name,
+			Gitsha:         gitsha,
+			UpdateStrategy: updateStrategy,
 		}
 		scheduledTasks = append(scheduledTasks, &task)
 	}
