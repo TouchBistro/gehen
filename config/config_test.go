@@ -28,12 +28,14 @@ func TestReadServicesWithRole(t *testing.T) {
 	}
 	expectedScheduledTasks := []*config.ScheduledTask{
 		{
-			Name:   "weekly-job",
-			Gitsha: gitsha,
+			Name:           "weekly-job",
+			Gitsha:         gitsha,
+			UpdateStrategy: config.UpdateStrategyLatest,
 		},
 		{
-			Name:   "monthly-job",
-			Gitsha: gitsha,
+			Name:           "monthly-job",
+			Gitsha:         gitsha,
+			UpdateStrategy: config.UpdateStrategyLatest,
 		},
 	}
 
@@ -70,12 +72,14 @@ func TestReadServicesWithoutRole(t *testing.T) {
 	}
 	expectedScheduledTasks := []*config.ScheduledTask{
 		{
-			Name:   "weekly-job",
-			Gitsha: gitsha,
+			Name:           "weekly-job",
+			Gitsha:         gitsha,
+			UpdateStrategy: config.UpdateStrategyCurrent,
 		},
 		{
-			Name:   "monthly-job",
-			Gitsha: gitsha,
+			Name:           "monthly-job",
+			Gitsha:         gitsha,
+			UpdateStrategy: config.UpdateStrategyCurrent,
 		},
 	}
 
