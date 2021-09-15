@@ -1,6 +1,7 @@
 package deploy_test
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"net/http"
@@ -70,7 +71,7 @@ func TestDeploy(t *testing.T) {
 		},
 	}
 
-	results := deploy.Deploy(services, mockClient)
+	results := deploy.Deploy(context.Background(), services, mockClient)
 
 	assert.ElementsMatch(t, expectedResults, results)
 }
@@ -130,7 +131,7 @@ func TestDeployNoNewTaskDef(t *testing.T) {
 		},
 	}
 
-	results := deploy.Deploy(services, mockClient)
+	results := deploy.Deploy(context.Background(), services, mockClient)
 
 	assert.ElementsMatch(t, expectedResults, results)
 }
@@ -199,7 +200,7 @@ func TestRollback(t *testing.T) {
 		},
 	}
 
-	results := deploy.Rollback(services, mockClient)
+	results := deploy.Rollback(context.Background(), services, mockClient)
 
 	assert.ElementsMatch(t, expectedResults, results)
 }
@@ -426,7 +427,7 @@ func TestCheckDrain(t *testing.T) {
 		},
 	}
 
-	results := deploy.CheckDrained(services, mockClient)
+	results := deploy.CheckDrained(context.Background(), services, mockClient)
 
 	assert.ElementsMatch(t, expectedResults, results)
 }
@@ -478,7 +479,7 @@ func TestCheckDrainFailed(t *testing.T) {
 	mockClient.SetServiceStatus("example-production", "ACTIVE")
 	mockClient.SetServiceStatus("example-staging", "ACTIVE")
 
-	results := deploy.CheckDrained(services, mockClient)
+	results := deploy.CheckDrained(context.Background(), services, mockClient)
 	var gotServices []*config.Service
 	var errs []error
 	for _, r := range results {
@@ -551,7 +552,7 @@ func TestCheckDrainTimedOut(t *testing.T) {
 		},
 	}
 
-	results := deploy.CheckDrained(services, mockClient)
+	results := deploy.CheckDrained(context.Background(), services, mockClient)
 
 	assert.ElementsMatch(t, expectedResults, results)
 }
@@ -607,7 +608,7 @@ func TestUpdateScheduledTasks(t *testing.T) {
 		},
 	}
 
-	results := deploy.UpdateScheduledTasks(scheduledTasks, mockEBClient, mockECSClient)
+	results := deploy.UpdateScheduledTasks(context.Background(), scheduledTasks, mockEBClient, mockECSClient)
 
 	assert.ElementsMatch(t, expectedResults, results)
 }
@@ -669,7 +670,7 @@ func TestRollbackScheduledTasks(t *testing.T) {
 		},
 	}
 
-	results := deploy.RollbackScheduledTasks(scheduledTasks, mockEBClient, mockECSClient)
+	results := deploy.RollbackScheduledTasks(context.Background(), scheduledTasks, mockEBClient, mockECSClient)
 
 	assert.ElementsMatch(t, expectedResults, results)
 }

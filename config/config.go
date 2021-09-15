@@ -73,7 +73,7 @@ type ParsedConfig struct {
 // Read reads the config file at the given path and returns
 // a slice of services and scheduled tasks.
 func Read(configPath, gitsha string) (ParsedConfig, error) {
-	if !file.FileOrDirExists(configPath) {
+	if !file.Exists(configPath) {
 		return ParsedConfig{}, errors.Errorf("no such file %s", configPath)
 	}
 

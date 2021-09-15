@@ -1,28 +1,33 @@
 package awsecs
 
 import (
+	"context"
 	"log"
 
 	"github.com/TouchBistro/gehen/config"
 	"github.com/TouchBistro/goutils/color"
-	"github.com/aws/aws-sdk-go/service/ecs/ecsiface"
-	"github.com/aws/aws-sdk-go/service/eventbridge"
-	"github.com/aws/aws-sdk-go/service/eventbridge/eventbridgeiface"
+	"github.com/aws/aws-sdk-go-v2/service/eventbridge"
+	ebtypes "github.com/aws/aws-sdk-go-v2/service/eventbridge/types"
 	"github.com/pkg/errors"
 )
+
+type EBClient interface {
+	ListTargetsByRule(ctx context.Context, params *eventbridge.ListTargetsByRuleInput, optFns ...func(*eventbridge.Options)) (*eventbridge.ListTargetsByRuleOutput, error)
+	PutTargets(ctx context.Context, params *eventbridge.PutTargetsInput, optFns ...func(*eventbridge.Options)) (*eventbridge.PutTargetsOutput, error)
+}
 
 type UpdateScheduledTaskArgs struct {
 	Task       *config.ScheduledTask
 	IsRollback bool
-	EBClient   eventbridgeiface.EventBridgeAPI
-	ECSClient  ecsiface.ECSAPI
+	EBClient   EBClient
+	ECSClient  ECSClient
 }
 
-func UpdateScheduledTask(args UpdateScheduledTaskArgs) error {
+func UpdateScheduledTask(ctx context.Context, args UpdateScheduledTaskArgs) error {
 	task := args.Task
 	// Retrieve targets for schedule task eventbridge rule
 	// This will contain the ECS information like the task def
-	respListTargets, err := args.EBClient.ListTargetsByRule(&eventbridge.ListTargetsByRuleInput{
+	respListTargets, err := args.EBClient.ListTargetsByRule(ctx, &eventbridge.ListTargetsByRuleInput{
 		Rule: &task.Name,
 	})
 	if err != nil {
@@ -50,7 +55,7 @@ func UpdateScheduledTask(args UpdateScheduledTaskArgs) error {
 		// or if this is even allowed by ECS
 		// Passing an empty array as the containers to update means gehen will update all
 		// containers within this task definition to the new sha.
-		updateTaskDefRes, err := updateTaskDef(taskDefARN, task.Gitsha, task.UpdateStrategy, []string{}, args.ECSClient)
+		updateTaskDefRes, err := updateTaskDef(ctx, taskDefARN, task.Gitsha, task.UpdateStrategy, []string{}, args.ECSClient)
 		if err != nil {
 			return errors.Wrapf(err, "failed to update task def for scheduled task: %s", task.Name)
 		}
@@ -71,17 +76,17 @@ func UpdateScheduledTask(args UpdateScheduledTaskArgs) error {
 	// Just update the Task Def and use the same target
 	// This way we can make sure all the other config is preserved
 	awsTarget.EcsParameters.TaskDefinitionArn = &newTaskDefARN
-	respPutTargets, err := args.EBClient.PutTargets(&eventbridge.PutTargetsInput{
+	respPutTargets, err := args.EBClient.PutTargets(ctx, &eventbridge.PutTargetsInput{
 		Rule:    &task.Name,
-		Targets: []*eventbridge.Target{awsTarget},
+		Targets: []ebtypes.Target{awsTarget},
 	})
 	if err != nil {
 		return errors.Wrapf(err, "failed to update targets for scheduled task rule %s", task.Name)
 	}
 
-	if respPutTargets.FailedEntryCount != nil && *respPutTargets.FailedEntryCount > 0 {
+	if respPutTargets.FailedEntryCount > 0 {
 		for _, e := range respPutTargets.FailedEntries {
-			log.Printf("Failed to update entry: %v\n", *e)
+			log.Printf("Failed to update entry: %v\n", e)
 		}
 
 		return errors.Errorf("failed to update scheduled task entries: %s", task.Name)
