@@ -1,16 +1,17 @@
 package awsecs
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"math/rand"
 	"strconv"
 
-	"github.com/aws/aws-sdk-go/aws"
-	"github.com/aws/aws-sdk-go/service/ecs"
-	"github.com/aws/aws-sdk-go/service/ecs/ecsiface"
-	"github.com/aws/aws-sdk-go/service/eventbridge"
-	"github.com/aws/aws-sdk-go/service/eventbridge/eventbridgeiface"
+	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/service/ecs"
+	ecstypes "github.com/aws/aws-sdk-go-v2/service/ecs/types"
+	"github.com/aws/aws-sdk-go-v2/service/eventbridge"
+	ebtypes "github.com/aws/aws-sdk-go-v2/service/eventbridge/types"
 )
 
 type mockService struct {
@@ -37,15 +38,14 @@ func (mt *mockTask) Arn() string {
 	return fmt.Sprintf("arn:aws:ecs:us-east-1:123456:task/%s/%s", mt.clusterName, mt.id)
 }
 
-func (mt *mockTask) HealthStatus() string {
+func (mt *mockTask) HealthStatus() ecstypes.HealthStatus {
 	if mt.healthy {
-		return "HEALTHY"
+		return ecstypes.HealthStatusHealthy
 	}
-	return "UNHEALTHY"
+	return ecstypes.HealthStatusUnhealthy
 }
 
 type MockECSClient struct {
-	ecsiface.ECSAPI
 	services map[string]*mockService
 	tasks    []mockTask
 }
@@ -77,38 +77,34 @@ func (mc *MockECSClient) SetServiceStatus(name, status string) {
 	s.deploymentStatus = status
 }
 
-func (mc *MockECSClient) DescribeServices(input *ecs.DescribeServicesInput) (*ecs.DescribeServicesOutput, error) {
-	outServices := make([]*ecs.Service, 0)
-	for _, serviceName := range input.Services {
-		s, ok := mc.services[*serviceName]
+func (mc *MockECSClient) DescribeServices(ctx context.Context, params *ecs.DescribeServicesInput, optFns ...func(*ecs.Options)) (*ecs.DescribeServicesOutput, error) {
+	var outServices []ecstypes.Service
+	for _, serviceName := range params.Services {
+		s, ok := mc.services[serviceName]
 		if !ok {
 			return nil, errors.New("service not found")
 		}
-
-		outServices = append(outServices, &ecs.Service{
+		outServices = append(outServices, ecstypes.Service{
 			ServiceName:    aws.String(s.name),
 			TaskDefinition: aws.String(s.TaskDefinitionArn()),
-			Deployments: []*ecs.Deployment{
+			Deployments: []ecstypes.Deployment{
 				{
 					TaskDefinition: aws.String(s.TaskDefinitionArn()),
 					Status:         aws.String(s.deploymentStatus),
 					// TODO should this be configurable?
-					RunningCount: aws.Int64(2),
-					DesiredCount: aws.Int64(2),
+					RunningCount: 2,
+					DesiredCount: 2,
 				},
 			},
 		})
 	}
-
-	return &ecs.DescribeServicesOutput{
-		Services: outServices,
-	}, nil
+	return &ecs.DescribeServicesOutput{Services: outServices}, nil
 }
 
-func (mc *MockECSClient) DescribeTaskDefinition(input *ecs.DescribeTaskDefinitionInput) (*ecs.DescribeTaskDefinitionOutput, error) {
+func (mc *MockECSClient) DescribeTaskDefinition(ctx context.Context, params *ecs.DescribeTaskDefinitionInput, optFns ...func(*ecs.Options)) (*ecs.DescribeTaskDefinitionOutput, error) {
 	var service *mockService
 	for _, s := range mc.services {
-		if s.TaskDefinitionArn() == *input.TaskDefinition {
+		if s.TaskDefinitionArn() == *params.TaskDefinition {
 			service = s
 		}
 	}
@@ -119,8 +115,8 @@ func (mc *MockECSClient) DescribeTaskDefinition(input *ecs.DescribeTaskDefinitio
 
 	image := fmt.Sprintf("123456.dkr.ecr.us-east-1.amazonaws.com/%s:%s", service.imageName, service.gitsha)
 	return &ecs.DescribeTaskDefinitionOutput{
-		TaskDefinition: &ecs.TaskDefinition{
-			ContainerDefinitions: []*ecs.ContainerDefinition{
+		TaskDefinition: &ecstypes.TaskDefinition{
+			ContainerDefinitions: []ecstypes.ContainerDefinition{
 				{
 					Image: aws.String(image),
 				},
@@ -132,24 +128,23 @@ func (mc *MockECSClient) DescribeTaskDefinition(input *ecs.DescribeTaskDefinitio
 	}, nil
 }
 
-func (mc *MockECSClient) RegisterTaskDefinition(input *ecs.RegisterTaskDefinitionInput) (*ecs.RegisterTaskDefinitionOutput, error) {
-	service, ok := mc.services[*input.Family]
+func (mc *MockECSClient) RegisterTaskDefinition(ctx context.Context, params *ecs.RegisterTaskDefinitionInput, optFns ...func(*ecs.Options)) (*ecs.RegisterTaskDefinitionOutput, error) {
+	service, ok := mc.services[*params.Family]
 	if !ok {
 		return nil, errors.New("task definition family not found")
 	}
 
 	// "Create" new task def version
 	service.taskDefVersion++
-
 	return &ecs.RegisterTaskDefinitionOutput{
-		TaskDefinition: &ecs.TaskDefinition{
+		TaskDefinition: &ecstypes.TaskDefinition{
 			TaskDefinitionArn: aws.String(service.TaskDefinitionArn()),
 		},
 	}, nil
 }
 
-func (mc *MockECSClient) UpdateService(input *ecs.UpdateServiceInput) (*ecs.UpdateServiceOutput, error) {
-	_, ok := mc.services[*input.Service]
+func (mc *MockECSClient) UpdateService(ctx context.Context, params *ecs.UpdateServiceInput, optFns ...func(*ecs.Options)) (*ecs.UpdateServiceOutput, error) {
+	_, ok := mc.services[*params.Service]
 	if !ok {
 		return nil, errors.New("service not found")
 	}
@@ -170,39 +165,39 @@ func (mc *MockECSClient) CreateMockTasks(clusterName, serviceName, taskDefArn st
 	}
 }
 
-func (mc *MockECSClient) ListTasks(input *ecs.ListTasksInput) (*ecs.ListTasksOutput, error) {
-	var taskArns []*string
+func (mc *MockECSClient) ListTasks(ctx context.Context, params *ecs.ListTasksInput, optFns ...func(*ecs.Options)) (*ecs.ListTasksOutput, error) {
+	var taskArns []string
 	for _, t := range mc.tasks {
-		if input.Cluster != nil && t.clusterName != *input.Cluster {
+		if params.Cluster != nil && t.clusterName != *params.Cluster {
 			continue
 		}
-		if input.ServiceName != nil && t.serviceName != *input.ServiceName {
+		if params.ServiceName != nil && t.serviceName != *params.ServiceName {
 			continue
 		}
-		taskArns = append(taskArns, aws.String(t.Arn()))
+		taskArns = append(taskArns, t.Arn())
 	}
 	return &ecs.ListTasksOutput{TaskArns: taskArns}, nil
 }
 
-func (mc *MockECSClient) DescribeTasks(input *ecs.DescribeTasksInput) (*ecs.DescribeTasksOutput, error) {
+func (mc *MockECSClient) DescribeTasks(ctx context.Context, params *ecs.DescribeTasksInput, optFns ...func(*ecs.Options)) (*ecs.DescribeTasksOutput, error) {
 	arnSet := make(map[string]bool)
-	for _, arn := range input.Tasks {
-		arnSet[*arn] = true
+	for _, arn := range params.Tasks {
+		arnSet[arn] = true
 	}
 
-	var tasks []*ecs.Task
+	var tasks []ecstypes.Task
 	for _, t := range mc.tasks {
-		if input.Cluster != nil && t.clusterName != *input.Cluster {
+		if params.Cluster != nil && t.clusterName != *params.Cluster {
 			continue
 		}
 		ok := arnSet[t.Arn()]
-		if input.Tasks != nil && !ok {
+		if params.Tasks != nil && !ok {
 			continue
 		}
-		tasks = append(tasks, &ecs.Task{
+		tasks = append(tasks, ecstypes.Task{
 			TaskArn:           aws.String(t.Arn()),
 			TaskDefinitionArn: aws.String(t.taskDefArn),
-			HealthStatus:      aws.String(t.HealthStatus()),
+			HealthStatus:      t.HealthStatus(),
 		})
 	}
 	return &ecs.DescribeTasksOutput{Tasks: tasks}, nil
@@ -216,7 +211,6 @@ type mockScheduledTask struct {
 }
 
 type MockEventBridgeClient struct {
-	eventbridgeiface.EventBridgeAPI
 	tasks map[string]*mockScheduledTask
 }
 
@@ -235,16 +229,16 @@ func NewMockEventBridgeClient(taskNames []string) *MockEventBridgeClient {
 	}
 }
 
-func (mc *MockEventBridgeClient) ListTargetsByRule(input *eventbridge.ListTargetsByRuleInput) (*eventbridge.ListTargetsByRuleOutput, error) {
-	t, ok := mc.tasks[*input.Rule]
+func (mc *MockEventBridgeClient) ListTargetsByRule(ctx context.Context, params *eventbridge.ListTargetsByRuleInput, optFns ...func(*eventbridge.Options)) (*eventbridge.ListTargetsByRuleOutput, error) {
+	t, ok := mc.tasks[*params.Rule]
 	if !ok {
 		return nil, errors.New("rule not found")
 	}
 
 	return &eventbridge.ListTargetsByRuleOutput{
-		Targets: []*eventbridge.Target{
+		Targets: []ebtypes.Target{
 			{
-				EcsParameters: &eventbridge.EcsParameters{
+				EcsParameters: &ebtypes.EcsParameters{
 					TaskDefinitionArn: aws.String(t.taskDefARN),
 				},
 			},
@@ -252,14 +246,11 @@ func (mc *MockEventBridgeClient) ListTargetsByRule(input *eventbridge.ListTarget
 	}, nil
 }
 
-func (mc *MockEventBridgeClient) PutTargets(input *eventbridge.PutTargetsInput) (*eventbridge.PutTargetsOutput, error) {
-	t, ok := mc.tasks[*input.Rule]
+func (mc *MockEventBridgeClient) PutTargets(ctx context.Context, params *eventbridge.PutTargetsInput, optFns ...func(*eventbridge.Options)) (*eventbridge.PutTargetsOutput, error) {
+	t, ok := mc.tasks[*params.Rule]
 	if !ok {
 		return nil, errors.New("rule not found")
 	}
-
-	t.taskDefARN = *input.Targets[0].EcsParameters.TaskDefinitionArn
-	return &eventbridge.PutTargetsOutput{
-		FailedEntryCount: aws.Int64(0),
-	}, nil
+	t.taskDefARN = *params.Targets[0].EcsParameters.TaskDefinitionArn
+	return &eventbridge.PutTargetsOutput{FailedEntryCount: 0}, nil
 }

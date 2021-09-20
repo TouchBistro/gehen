@@ -1,6 +1,7 @@
 package awsecs
 
 import (
+	"context"
 	stderrors "errors"
 	"fmt"
 	"log"
@@ -9,18 +10,26 @@ import (
 
 	"github.com/TouchBistro/gehen/config"
 	"github.com/TouchBistro/goutils/color"
-	"github.com/aws/aws-sdk-go/aws"
-	"github.com/aws/aws-sdk-go/aws/arn"
-	"github.com/aws/aws-sdk-go/service/ecs"
-	"github.com/aws/aws-sdk-go/service/ecs/ecsiface"
+	"github.com/aws/aws-sdk-go-v2/aws/arn"
+	"github.com/aws/aws-sdk-go-v2/service/ecs"
+	ecstypes "github.com/aws/aws-sdk-go-v2/service/ecs/types"
 	"github.com/pkg/errors"
 )
 
 // ErrHealthcheckFailed indicates that a ECS task failed a container healthcheck.
 var ErrHealthcheckFailed = stderrors.New("health check failed")
 
+type ECSClient interface {
+	DescribeServices(ctx context.Context, params *ecs.DescribeServicesInput, optFns ...func(*ecs.Options)) (*ecs.DescribeServicesOutput, error)
+	UpdateService(ctx context.Context, params *ecs.UpdateServiceInput, optFns ...func(*ecs.Options)) (*ecs.UpdateServiceOutput, error)
+	ListTasks(ctx context.Context, params *ecs.ListTasksInput, optFns ...func(*ecs.Options)) (*ecs.ListTasksOutput, error)
+	DescribeTasks(ctx context.Context, params *ecs.DescribeTasksInput, optFns ...func(*ecs.Options)) (*ecs.DescribeTasksOutput, error)
+	DescribeTaskDefinition(ctx context.Context, params *ecs.DescribeTaskDefinitionInput, optFns ...func(*ecs.Options)) (*ecs.DescribeTaskDefinitionOutput, error)
+	RegisterTaskDefinition(ctx context.Context, params *ecs.RegisterTaskDefinitionInput, optFns ...func(*ecs.Options)) (*ecs.RegisterTaskDefinitionOutput, error)
+}
+
 // Deploy registers a new task for the given service in ECS in order to create a new deployment.
-func Deploy(service *config.Service, ecsClient ecsiface.ECSAPI) error {
+func Deploy(ctx context.Context, service *config.Service, ecsClient ECSClient) error {
 	// Ensure we've been passed a valid cluster ARN and exit if not
 	clusterArn, err := arn.Parse(service.Cluster)
 	if err != nil {
@@ -29,15 +38,11 @@ func Deploy(service *config.Service, ecsClient ecsiface.ECSAPI) error {
 	log.Printf("Using cluster: %s\n", clusterArn)
 
 	// Retrieve existing service config
-	serviceInput := &ecs.DescribeServicesInput{
-		Services: []*string{
-			&service.Name,
-		},
-		Cluster: &service.Cluster,
-	}
-
 	log.Printf("Checking for service: %s\n", color.Cyan(service.Name))
-	respDescribeServices, err := ecsClient.DescribeServices(serviceInput)
+	respDescribeServices, err := ecsClient.DescribeServices(ctx, &ecs.DescribeServicesInput{
+		Services: []string{service.Name},
+		Cluster:  &service.Cluster,
+	})
 	if err != nil {
 		return errors.Wrapf(err, "failed to find service: %s", service.Name)
 	}
@@ -45,11 +50,10 @@ func Deploy(service *config.Service, ecsClient ecsiface.ECSAPI) error {
 	taskDefARN := *respDescribeServices.Services[0].TaskDefinition
 	log.Printf("Found current task definition: %v\n", taskDefARN)
 
-	updateTaskDefRes, err := updateTaskDef(taskDefARN, service.Gitsha, service.UpdateStrategy, service.Containers, ecsClient)
+	updateTaskDefRes, err := updateTaskDef(ctx, taskDefARN, service.Gitsha, service.UpdateStrategy, service.Containers, ecsClient)
 	if err != nil {
 		return errors.Wrapf(err, "failed to update task def for service: %s", service.Name)
 	}
-
 	log.Printf("Updating service %s\n", color.Cyan(service.Name))
 
 	// Set dynamic service values
@@ -58,40 +62,32 @@ func Deploy(service *config.Service, ecsClient ecsiface.ECSAPI) error {
 	service.PreviousTaskDefinitionARN = taskDefARN
 	service.TaskDefinitionARN = updateTaskDefRes.newTaskDefARN
 	service.Tags = updateTaskDefRes.dockerTags
-
-	err = UpdateService(service, ecsClient)
-	if err != nil {
+	if err := UpdateService(ctx, service, ecsClient); err != nil {
 		return errors.Wrap(err, "failed to update service")
 	}
-
 	return nil
 }
 
 // UpdateService creates a new deployment on ECS.
-func UpdateService(service *config.Service, ecsClient ecsiface.ECSAPI) error {
-	serviceUpdateInput := &ecs.UpdateServiceInput{
+func UpdateService(ctx context.Context, service *config.Service, ecsClient ECSClient) error {
+	_, err := ecsClient.UpdateService(ctx, &ecs.UpdateServiceInput{
 		TaskDefinition:     &service.TaskDefinitionARN,
 		Service:            &service.Name,
 		Cluster:            &service.Cluster,
-		ForceNewDeployment: aws.Bool(true),
-	}
-
-	_, err := ecsClient.UpdateService(serviceUpdateInput)
+		ForceNewDeployment: true,
+	})
 	if err != nil {
 		return errors.Wrapf(err, "failed to update service %s in ECS", service.Name)
 	}
-
 	return nil
 }
 
 // CheckDrain checks if all old tasks have drained. If the tasks are failing healthchecks,
 // the return error will wrap ErrHealthcheckFailed.
-func CheckDrain(service *config.Service, ecsClient ecsiface.ECSAPI) (bool, error) {
-	respDescribeServices, err := ecsClient.DescribeServices(&ecs.DescribeServicesInput{
-		Services: []*string{
-			&service.Name,
-		},
-		Cluster: &service.Cluster,
+func CheckDrain(ctx context.Context, service *config.Service, ecsClient ECSClient) (bool, error) {
+	respDescribeServices, err := ecsClient.DescribeServices(ctx, &ecs.DescribeServicesInput{
+		Services: []string{service.Name},
+		Cluster:  &service.Cluster,
 	})
 	if err != nil {
 		return false, errors.Wrapf(err, "failed to get current service: %s", service.Name)
@@ -99,9 +95,9 @@ func CheckDrain(service *config.Service, ecsClient ecsiface.ECSAPI) (bool, error
 	if len(respDescribeServices.Failures) > 0 {
 		var sb strings.Builder
 		for _, f := range respDescribeServices.Failures {
-			sb.WriteString(f.String())
+			writeFailure(&sb, f)
 		}
-		return false, errors.Wrapf(err, "failed to get service: %v", sb)
+		return false, errors.Wrapf(err, "failed to get service: %s", sb.String())
 	}
 	if len(respDescribeServices.Services) != 1 {
 		return false, errors.Wrapf(err, "expected 1 service named %s, got %d", service.Name, len(respDescribeServices.Services))
@@ -117,7 +113,7 @@ func CheckDrain(service *config.Service, ecsClient ecsiface.ECSAPI) (bool, error
 			expectedTaskDefARN = *awsService.TaskDefinition
 		}
 
-		if (*deployment.TaskDefinition == expectedTaskDefARN) && (*deployment.Status == "PRIMARY") && (*deployment.RunningCount == *deployment.DesiredCount) {
+		if (*deployment.TaskDefinition == expectedTaskDefARN) && (*deployment.Status == "PRIMARY") && (deployment.RunningCount == deployment.DesiredCount) {
 			return true, nil
 		}
 	}
@@ -125,14 +121,14 @@ func CheckDrain(service *config.Service, ecsClient ecsiface.ECSAPI) (bool, error
 	// Check and see if container healthchecks failed so we can provide more details
 
 	// TODO(@cszatmary): The response could be paginated, may need to handle this in the future
-	respListTasks, err := ecsClient.ListTasks(&ecs.ListTasksInput{
+	respListTasks, err := ecsClient.ListTasks(ctx, &ecs.ListTasksInput{
 		Cluster:     &service.Cluster,
 		ServiceName: &service.Name,
 	})
 	if err != nil {
 		return false, errors.Wrapf(err, "failed to list tasks for service: %s", service.Name)
 	}
-	respDescribeTasks, err := ecsClient.DescribeTasks(&ecs.DescribeTasksInput{
+	respDescribeTasks, err := ecsClient.DescribeTasks(ctx, &ecs.DescribeTasksInput{
 		Cluster: &service.Cluster,
 		Tasks:   respListTasks.TaskArns,
 	})
@@ -142,17 +138,16 @@ func CheckDrain(service *config.Service, ecsClient ecsiface.ECSAPI) (bool, error
 	if len(respDescribeTasks.Failures) > 0 {
 		var sb strings.Builder
 		for _, f := range respDescribeServices.Failures {
-			sb.WriteString(f.String())
+			writeFailure(&sb, f)
 		}
-		return false, errors.Wrapf(err, "failed to get tasks: %v", sb)
+		return false, errors.Wrapf(err, "failed to get tasks: %s", sb.String())
 	}
 
 	for _, task := range respDescribeTasks.Tasks {
-		if task.HealthStatus != nil && *task.HealthStatus == "UNHEALTHY" && *task.TaskDefinitionArn == service.TaskDefinitionARN {
+		if task.HealthStatus == ecstypes.HealthStatusUnhealthy && *task.TaskDefinitionArn == service.TaskDefinitionARN {
 			return false, errors.Wrapf(ErrHealthcheckFailed, "task %s is unhealthy", *task.TaskArn)
 		}
 	}
-
 	return false, nil
 }
 
@@ -164,7 +159,7 @@ type updateTaskDefResult struct {
 
 // updateTaskDef creates a new task def revision with the container image updated to use the new Git SHA.
 // It returns the new ARN and previous Git SHA.
-func updateTaskDef(taskDefARN, gitsha, updateStrategy string, containers []string, ecsClient ecsiface.ECSAPI) (updateTaskDefResult, error) {
+func updateTaskDef(ctx context.Context, taskDefARN, gitsha, updateStrategy string, containers []string, ecsClient ECSClient) (updateTaskDefResult, error) {
 	taskDefName := taskDefARN
 	if updateStrategy == config.UpdateStrategyLatest {
 		// If latest parse the family name from the ARN so we can look up the latest revision
@@ -178,7 +173,7 @@ func updateTaskDef(taskDefARN, gitsha, updateStrategy string, containers []strin
 	}
 
 	// Use resolved resource info to grab existing task def
-	respDescribeTaskDef, err := ecsClient.DescribeTaskDefinition(&ecs.DescribeTaskDefinitionInput{
+	respDescribeTaskDef, err := ecsClient.DescribeTaskDefinition(ctx, &ecs.DescribeTaskDefinitionInput{
 		TaskDefinition: &taskDefName,
 	})
 	if err != nil {
@@ -245,7 +240,7 @@ func updateTaskDef(taskDefARN, gitsha, updateStrategy string, containers []strin
 	dockerTags := newTaskInput.ContainerDefinitions[0].DockerLabels
 	tags := make([]string, 0, len(dockerTags))
 	for tag, value := range dockerTags {
-		newTag := fmt.Sprintf("%s:%s", tag, *value)
+		newTag := fmt.Sprintf("%s:%s", tag, value)
 		tags = append(tags, newTag)
 	}
 
@@ -259,7 +254,7 @@ func updateTaskDef(taskDefARN, gitsha, updateStrategy string, containers []strin
 	}
 
 	// Create new task def so we can update service to use it
-	respRegisterTaskDef, err := ecsClient.RegisterTaskDefinition(&newTaskInput)
+	respRegisterTaskDef, err := ecsClient.RegisterTaskDefinition(ctx, &newTaskInput)
 	if err != nil {
 		return updateTaskDefResult{}, errors.Wrapf(err, "cannot register new task definition for %s", *newTaskInput.Family)
 	}
@@ -272,4 +267,17 @@ func updateTaskDef(taskDefARN, gitsha, updateStrategy string, containers []strin
 		previousGitsha: previousGitsha,
 		dockerTags:     tags,
 	}, nil
+}
+
+// writeFailure writes the ECS failure f to the string builder.
+func writeFailure(sb *strings.Builder, f ecstypes.Failure) {
+	if f.Reason != nil {
+		sb.WriteString(*f.Reason)
+		sb.WriteString(": ")
+	}
+	if f.Detail != nil {
+		sb.WriteString(*f.Detail)
+	} else {
+		sb.WriteString("unknown failure")
+	}
 }

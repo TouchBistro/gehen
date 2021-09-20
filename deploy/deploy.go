@@ -1,6 +1,7 @@
 package deploy
 
 import (
+	"context"
 	"io/ioutil"
 	"log"
 	"net/http"
@@ -10,8 +11,6 @@ import (
 	"github.com/TouchBistro/gehen/awsecs"
 	"github.com/TouchBistro/gehen/config"
 	"github.com/TouchBistro/goutils/color"
-	"github.com/aws/aws-sdk-go/service/ecs/ecsiface"
-	"github.com/aws/aws-sdk-go/service/eventbridge/eventbridgeiface"
 	"github.com/pkg/errors"
 )
 
@@ -51,13 +50,13 @@ func CheckIntervalDuration(d time.Duration) {
 }
 
 // Deploy will deploy the given services to AWS ECS.
-func Deploy(services []*config.Service, ecsClient ecsiface.ECSAPI) []Result {
+func Deploy(ctx context.Context, services []*config.Service, ecsClient awsecs.ECSClient) []Result {
 	resultChan := make(chan Result)
 
 	// Deploy all the services concurrently
 	for _, s := range services {
 		go func(service *config.Service) {
-			err := awsecs.Deploy(service, ecsClient)
+			err := awsecs.Deploy(ctx, service, ecsClient)
 			resultChan <- Result{service, err}
 		}(s)
 	}
@@ -71,7 +70,7 @@ func Deploy(services []*config.Service, ecsClient ecsiface.ECSAPI) []Result {
 	return results
 }
 
-func Rollback(services []*config.Service, ecsClient ecsiface.ECSAPI) []Result {
+func Rollback(ctx context.Context, services []*config.Service, ecsClient awsecs.ECSClient) []Result {
 	resultChan := make(chan Result)
 
 	// Rollback all the services concurrently
@@ -86,7 +85,7 @@ func Rollback(services []*config.Service, ecsClient ecsiface.ECSAPI) []Result {
 		s.TaskDefinitionARN = taskDefARN
 
 		go func(service *config.Service) {
-			err := awsecs.UpdateService(service, ecsClient)
+			err := awsecs.UpdateService(ctx, service, ecsClient)
 			resultChan <- Result{service, err}
 		}(s)
 	}
@@ -170,7 +169,7 @@ loop:
 
 // CheckDrained keeps checking the services until it sees all old versions are gone
 // or it times out. If a service timed out Result.err will be ErrTimedOut.
-func CheckDrained(services []*config.Service, ecsClient ecsiface.ECSAPI) []Result {
+func CheckDrained(ctx context.Context, services []*config.Service, ecsClient awsecs.ECSClient) []Result {
 	resultChan := make(chan Result)
 
 	for _, s := range services {
@@ -179,7 +178,7 @@ func CheckDrained(services []*config.Service, ecsClient ecsiface.ECSAPI) []Resul
 				time.Sleep(checkIntervalDuration)
 				log.Printf("Checking if old versions are gone for: %s\n", color.Cyan(service.Name))
 
-				drained, err := awsecs.CheckDrain(service, ecsClient)
+				drained, err := awsecs.CheckDrain(ctx, service, ecsClient)
 				if err != nil {
 					// If this happens abort because it will never succeed
 					resultChan <- Result{service, err}
@@ -234,13 +233,13 @@ type ScheduledTaskResult struct {
 }
 
 // UpdateScheduledTasks will update the ECS scheduled tasks to use the new version of the service.
-func UpdateScheduledTasks(tasks []*config.ScheduledTask, ebClient eventbridgeiface.EventBridgeAPI, ecsClient ecsiface.ECSAPI) []ScheduledTaskResult {
+func UpdateScheduledTasks(ctx context.Context, tasks []*config.ScheduledTask, ebClient awsecs.EBClient, ecsClient awsecs.ECSClient) []ScheduledTaskResult {
 	resultChan := make(chan ScheduledTaskResult)
 
 	// Update all the tasks concurrently
 	for _, t := range tasks {
 		go func(task *config.ScheduledTask) {
-			err := awsecs.UpdateScheduledTask(awsecs.UpdateScheduledTaskArgs{
+			err := awsecs.UpdateScheduledTask(ctx, awsecs.UpdateScheduledTaskArgs{
 				Task:      task,
 				EBClient:  ebClient,
 				ECSClient: ecsClient,
@@ -259,13 +258,13 @@ func UpdateScheduledTasks(tasks []*config.ScheduledTask, ebClient eventbridgeifa
 }
 
 // RollbackScheduledTasks will change the ECS scheduled tasks to use the previous version of the service.
-func RollbackScheduledTasks(tasks []*config.ScheduledTask, ebClient eventbridgeiface.EventBridgeAPI, ecsClient ecsiface.ECSAPI) []ScheduledTaskResult {
+func RollbackScheduledTasks(ctx context.Context, tasks []*config.ScheduledTask, ebClient awsecs.EBClient, ecsClient awsecs.ECSClient) []ScheduledTaskResult {
 	resultChan := make(chan ScheduledTaskResult)
 
 	// Rollback all the task concurrently
 	for _, t := range tasks {
 		go func(task *config.ScheduledTask) {
-			err := awsecs.UpdateScheduledTask(awsecs.UpdateScheduledTaskArgs{
+			err := awsecs.UpdateScheduledTask(ctx, awsecs.UpdateScheduledTaskArgs{
 				Task: task,
 				// The func will handle using the correct task def ARN, no need to swap ourselves
 				IsRollback: true,

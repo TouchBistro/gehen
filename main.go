@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"log"
@@ -13,11 +14,12 @@ import (
 	"github.com/TouchBistro/gehen/deploy"
 	"github.com/TouchBistro/goutils/color"
 	"github.com/TouchBistro/goutils/fatal"
-	"github.com/aws/aws-sdk-go/aws"
-	"github.com/aws/aws-sdk-go/aws/credentials/stscreds"
-	"github.com/aws/aws-sdk-go/aws/session"
-	"github.com/aws/aws-sdk-go/service/ecs"
-	"github.com/aws/aws-sdk-go/service/eventbridge"
+	"github.com/aws/aws-sdk-go-v2/aws"
+	awsconfig "github.com/aws/aws-sdk-go-v2/config"
+	"github.com/aws/aws-sdk-go-v2/credentials/stscreds"
+	"github.com/aws/aws-sdk-go-v2/service/ecs"
+	"github.com/aws/aws-sdk-go-v2/service/eventbridge"
+	"github.com/aws/aws-sdk-go-v2/service/sts"
 	"github.com/getsentry/sentry-go"
 	"github.com/pkg/errors"
 )
@@ -77,8 +79,8 @@ func cleanup() {
 	}
 }
 
-func performRollback(services []*config.Service, scheduledTasks []*config.ScheduledTask, ebClient *eventbridge.EventBridge, ecsClient *ecs.ECS) {
-	rollbackResults := deploy.Rollback(services, ecsClient)
+func performRollback(ctx context.Context, services []*config.Service, scheduledTasks []*config.ScheduledTask, ebClient *eventbridge.Client, ecsClient *ecs.Client) {
+	rollbackResults := deploy.Rollback(ctx, services, ecsClient)
 	rollbackFailed := false
 
 	for _, result := range rollbackResults {
@@ -140,7 +142,7 @@ func performRollback(services []*config.Service, scheduledTasks []*config.Schedu
 
 	sendStatsdEvents(services, "gehen.rollbacks.draining", "Gehen is checking for service rollback drain on %s")
 
-	checkDrainedResults := deploy.CheckDrained(services, ecsClient)
+	checkDrainedResults := deploy.CheckDrained(ctx, services, ecsClient)
 	checkDrainedFailed := false
 
 	for _, result := range checkDrainedResults {
@@ -176,7 +178,7 @@ func performRollback(services []*config.Service, scheduledTasks []*config.Schedu
 
 	// Need to rollback scheduled tasks though since they will likely fail as well
 	// Also they would have inconsitent versions
-	rollbackScheduledTaskResults := deploy.RollbackScheduledTasks(scheduledTasks, ebClient, ecsClient)
+	rollbackScheduledTaskResults := deploy.RollbackScheduledTasks(ctx, scheduledTasks, ebClient, ecsClient)
 	rollbackScheduledTasksFailed := false
 
 	for _, result := range rollbackScheduledTaskResults {
@@ -266,23 +268,17 @@ func main() {
 		fatal.Exit("gehen.yml must contain at least one service or scheduled task")
 	}
 
-	sess := session.Must(session.NewSession(&aws.Config{
-		Region: aws.String("us-east-1"),
-	}))
-
-	// Connect to ECS and EventBridge APIs
-	var ecsClient *ecs.ECS
-	var ebClient *eventbridge.EventBridge
-
-	if parsedConfig.Role != nil {
-		awsConfig := aws.NewConfig().WithCredentials(stscreds.NewCredentials(sess, parsedConfig.Role.ARN))
-
-		ecsClient = ecs.New(sess, awsConfig)
-		ebClient = eventbridge.New(sess, awsConfig)
-	} else {
-		ecsClient = ecs.New(sess)
-		ebClient = eventbridge.New(sess)
+	ctx := context.Background()
+	awscfg, err := awsconfig.LoadDefaultConfig(ctx, awsconfig.WithRegion("us-east-1"))
+	if err != nil {
+		fatal.ExitErr(err, "Failed to load AWS configuration")
 	}
+	if parsedConfig.Role != nil {
+		creds := stscreds.NewAssumeRoleProvider(sts.NewFromConfig(awscfg), parsedConfig.Role.ARN)
+		awscfg.Credentials = aws.NewCredentialsCache(creds)
+	}
+	ecsClient := ecs.NewFromConfig(awscfg)
+	ebClient := eventbridge.NewFromConfig(awscfg)
 
 	if parsedConfig.TimeoutMinutes != 0 {
 		deploy.TimeoutDuration(time.Duration(parsedConfig.TimeoutMinutes) * time.Minute)
@@ -291,7 +287,7 @@ func main() {
 	// DEPLOYMENT ZONE //
 
 	// Update scheduled tasks first so if this fails we don't need to worry about rolling back services
-	updateScheduledTaskResults := deploy.UpdateScheduledTasks(parsedConfig.ScheduledTasks, ebClient, ecsClient)
+	updateScheduledTaskResults := deploy.UpdateScheduledTasks(ctx, parsedConfig.ScheduledTasks, ebClient, ecsClient)
 	updateScheduledTasksFailed := false
 
 	for _, result := range updateScheduledTaskResults {
@@ -318,7 +314,7 @@ func main() {
 
 	deployEnabled := parsedConfig.UpdateStrategy != config.UpdateStrategyNone
 	if deployEnabled {
-		deployResults := deploy.Deploy(parsedConfig.Services, ecsClient)
+		deployResults := deploy.Deploy(ctx, parsedConfig.Services, ecsClient)
 		deployFailed := false
 		succeededServices := make([]*config.Service, 0)
 
@@ -346,7 +342,7 @@ func main() {
 			// If deploy failed that means the new version wasn't even registered on ECS so we only need to rollback ones that succeeded
 			log.Println(color.Red("Failed to create new versions of some services"))
 			log.Println(color.Yellow("Rolling back services that succeeded to prevent inconsistent states"))
-			performRollback(succeededServices, parsedConfig.ScheduledTasks, ebClient, ecsClient)
+			performRollback(ctx, succeededServices, parsedConfig.ScheduledTasks, ebClient, ecsClient)
 		}
 
 		sendStatsdEvents(parsedConfig.Services, "gehen.deploys.started", "Gehen started a deploy for service %s")
@@ -395,12 +391,12 @@ func main() {
 		}
 
 		log.Println(color.Yellow("Rolling all services back to the previous version"))
-		performRollback(parsedConfig.Services, parsedConfig.ScheduledTasks, ebClient, ecsClient)
+		performRollback(ctx, parsedConfig.Services, parsedConfig.ScheduledTasks, ebClient, ecsClient)
 	}
 
 	sendStatsdEvents(parsedConfig.Services, "gehen.deploys.draining", "Gehen is checking for service drain on %s")
 
-	checkDrainedResults := deploy.CheckDrained(parsedConfig.Services, ecsClient)
+	checkDrainedResults := deploy.CheckDrained(ctx, parsedConfig.Services, ecsClient)
 	checkDrainedFailed := false
 	checkDrainTimedOut := false
 
@@ -433,7 +429,7 @@ func main() {
 		log.Println("This means the new version failed to boot, or was unable to serve requests.")
 		log.Println("Your next step should be to check the logs for your service to find out why.")
 		log.Println(color.Yellow("Rolling all services back to the previous version"))
-		performRollback(parsedConfig.Services, parsedConfig.ScheduledTasks, ebClient, ecsClient)
+		performRollback(ctx, parsedConfig.Services, parsedConfig.ScheduledTasks, ebClient, ecsClient)
 	} else if checkDrainTimedOut {
 		log.Println(color.Yellow("Some services still have the old version running"))
 		log.Println(color.Yellow("This means there are two different versions of the same service in production"))
