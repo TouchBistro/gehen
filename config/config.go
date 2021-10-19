@@ -10,9 +10,10 @@ import (
 )
 
 const (
-	UpdateStrategyCurrent = "current"
-	UpdateStrategyLatest  = "latest"
-	UpdateStrategyNone    = "none"
+	UpdateStrategyCurrent  = "current"
+	UpdateStrategyLatest   = "latest"
+	UpdateStrategyRedeploy = "redeploy"
+	UpdateStrategyNone     = "none"
 )
 
 type serviceConfig struct {
@@ -91,7 +92,7 @@ func Read(configPath, gitsha string) (ParsedConfig, error) {
 
 	updateStrategy := strings.ToLower(config.UpdateStrategy)
 	switch updateStrategy {
-	case UpdateStrategyCurrent, UpdateStrategyLatest, UpdateStrategyNone:
+	case UpdateStrategyCurrent, UpdateStrategyLatest, UpdateStrategyRedeploy, UpdateStrategyNone:
 	case "":
 		// Default is current
 		updateStrategy = UpdateStrategyCurrent

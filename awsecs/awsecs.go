@@ -225,7 +225,7 @@ func updateTaskDef(ctx context.Context, taskDefARN, gitsha, updateStrategy strin
 		}
 
 		// Only update if we find an existing image that is different from the new gitsha
-		if gitsha == previousGitsha {
+		if gitsha == previousGitsha || updateStrategy == config.UpdateStrategyRedeploy {
 			continue
 		}
 

@@ -85,6 +85,7 @@ The possible values are:
 
 - `current`: Create a new task definition based off the revision the service is currently using.
 - `latest`: Create a new task definition based off the latest revision available.
+- `redeploy`: Skips creating a new task definition, but still deploys the ECS service.
 - `none`: Disable updating services. This prevents Gehen from deploying a new version of the service.
 
 ## Contributing
