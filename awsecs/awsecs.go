@@ -240,6 +240,10 @@ func updateTaskDef(ctx context.Context, taskDefARN, gitsha, updateStrategy strin
 	dockerTags := newTaskInput.ContainerDefinitions[0].DockerLabels
 	tags := make([]string, 0, len(dockerTags))
 	for tag, value := range dockerTags {
+		// Ignore the special Datadog label that is used for logs
+		if tag == "com.datadoghq.ad.logs" {
+			continue
+		}
 		newTag := fmt.Sprintf("%s:%s", tag, value)
 		tags = append(tags, newTag)
 	}
