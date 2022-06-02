@@ -240,11 +240,16 @@ func main() {
 	}
 
 	if ddAgentHost, ok := os.LookupEnv("DD_AGENT_HOST"); ok {
-		client, err := statsd.New(ddAgentHost, statsd.Option(func(o *statsd.Options) error {
-			// Try creating an unbuffered client to see if completed events show up
-			o.MaxMessagesPerPayload = 1
-			return nil
-		}))
+		client, err := statsd.New(
+			ddAgentHost,
+			// Set global tags to be included in all events/metrics
+			statsd.WithTags([]string{"source:gehen"}),
+			statsd.Option(func(o *statsd.Options) error {
+				// Try creating an unbuffered client to see if completed events show up
+				o.MaxMessagesPerPayload = 1
+				return nil
+			}),
+		)
 		if err != nil {
 			fatal.ExitErr(err, "Could not create StatsD agent (DD_AGENT_HOST may not be set)")
 		}

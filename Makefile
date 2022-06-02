@@ -4,7 +4,7 @@
 setup:
 # Only install if missing
 ifeq (,$(wildcard bin/golangci-lint))
-	curl -sfL https://install.goreleaser.com/github.com/golangci/golangci-lint.sh | sh
+	curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s v1.46.2
 endif
 
 	go mod download
