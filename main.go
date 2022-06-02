@@ -51,9 +51,9 @@ func sendStatsdEvents(services []*config.Service, eventTitle, eventText string) 
 			// Text is the description of the event.  Required.
 			Text: fmt.Sprintf(eventText, s.Name),
 			// Tags for the event.
-			Tags: s.Tags,
+			Tags:           s.Tags,
+			SourceTypeName: "gehen",
 		}
-
 		err := statsdClient.Event(event)
 		if err != nil {
 			err = errors.Wrap(err, "cannot send statsd event")
@@ -242,8 +242,6 @@ func main() {
 	if ddAgentHost, ok := os.LookupEnv("DD_AGENT_HOST"); ok {
 		client, err := statsd.New(
 			ddAgentHost,
-			// Set global tags to be included in all events/metrics
-			statsd.WithTags([]string{"source:gehen"}),
 			statsd.Option(func(o *statsd.Options) error {
 				// Try creating an unbuffered client to see if completed events show up
 				o.MaxMessagesPerPayload = 1
