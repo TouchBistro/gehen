@@ -52,7 +52,7 @@ func sendStatsdEvents(services []*config.Service, eventTitle, eventText string) 
 			Text: fmt.Sprintf(eventText, s.Name),
 			// Tags for the event.
 			Tags:           s.Tags,
-			SourceTypeName: "gehen",
+			SourceTypeName: "go",
 		}
 		err := statsdClient.Event(event)
 		if err != nil {
